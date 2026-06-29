@@ -8,6 +8,7 @@ pytest_cache/
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 
 # Stress test outputs (large, regenerated on each run)
 _stress_test_figures/
