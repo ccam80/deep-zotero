@@ -85,8 +85,6 @@ libraries. The pipeline:
 | `src/deep_zotero/feature_extraction/local_vision_api.py` | Local vision model support (vLLM/OpenAI-compatible) |
 | `src/deep_zotero/feature_extraction/methods/figure_detection.py` | Figure region detection |
 | `src/deep_zotero/feature_extraction/postprocessors/cell_cleaning.py` | Post-extraction cell text cleanup |
-| `src/deep_zotero/feature_extraction/paddle_extract.py` | PaddleOCR integration |
-| `src/deep_zotero/feature_extraction/paddle_engines/` | PP-Structure and PaddleOCR-VL engines |
 
 ### Vision pipeline flow
 

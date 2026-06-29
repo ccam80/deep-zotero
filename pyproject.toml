@@ -21,8 +21,6 @@ dependencies = [
     "opencv-python>=4.0.0",
     "camelot-py>=0.11.0",
     "pdfplumber>=0.11.0",
-    "paddlepaddle-gpu>=3.0.0",
-    "paddleocr>=3.0.0",
 ]
 
 [project.optional-dependencies]
