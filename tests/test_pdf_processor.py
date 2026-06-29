@@ -357,8 +357,10 @@ class TestExtractDocument:
         assert extraction.tables[0].headers == ["ColA", "ColB"]
         assert extraction.tables[0].rows == [["new", "data"]]
 
-    def test_recrop_keeps_original_when_incomplete(self, tmp_path):
-        """When recrop response has is_incomplete=True, original is kept."""
+    def test_incomplete_recrop_falls_back_to_fullpage(self, tmp_path):
+        """3-wave design: an incomplete recrop triggers a full-page retry (wave 3);
+        when the full-page result has content, it replaces the incomplete original.
+        """
         from deep_zotero.pdf_processor import extract_document
 
         pdf = tmp_path / "test.pdf"
@@ -380,10 +382,18 @@ class TestExtractDocument:
             is_incomplete=True,
             incomplete_reason="bottom edge cut off",
         )
+        fullpage_resp = _make_agent_response(
+            headers=["ColA"],
+            rows=[["fullpage"]],
+            caption="Table 1",
+        )
         mock_api = MagicMock()
+        # Wave 1 (initial) -> recrop requested; Wave 2 (recrop) -> incomplete;
+        # Wave 3 (full-page follow-up) -> good content.
         mock_api.extract_tables_batch.side_effect = [
             [original_resp],
             [recrop_resp],
+            [fullpage_resp],
         ]
         patches = _base_patches(page, extra_captions=[cap])
 
@@ -401,6 +411,59 @@ class TestExtractDocument:
         ):
             extraction = _extract_and_resolve(pdf, mock_api)
 
+        assert mock_api.extract_tables_batch.call_count == 3
+        assert len(extraction.tables) == 1
+        assert extraction.tables[0].rows == [["fullpage"]]
+
+    def test_incomplete_recrop_keeps_original_when_fullpage_fails(self, tmp_path):
+        """3-wave design: when the wave-3 full-page retry also fails to parse,
+        the valid-but-incomplete original response is kept.
+        """
+        from deep_zotero.pdf_processor import extract_document
+
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"fake")
+        page = _make_page_mock()
+
+        cap = _make_detected_caption("Table 1")
+        original_resp = _make_agent_response(
+            headers=["ColA"],
+            rows=[["original"]],
+            caption="Table 1",
+            recrop_needed=True,
+            recrop_bbox_pct=[10.0, 10.0, 90.0, 90.0],
+        )
+        recrop_resp = _make_agent_response(
+            headers=["ColA"],
+            rows=[["partial"]],
+            caption="Table 1",
+            is_incomplete=True,
+            incomplete_reason="bottom edge cut off",
+        )
+        fullpage_resp = _make_agent_response(parse_success=False)
+        mock_api = MagicMock()
+        mock_api.extract_tables_batch.side_effect = [
+            [original_resp],
+            [recrop_resp],
+            [fullpage_resp],
+        ]
+        patches = _base_patches(page, extra_captions=[cap])
+
+        with (
+            patch(_PYMUPDF4LLM + ".to_markdown", patches[_PYMUPDF4LLM].to_markdown),
+            patch(_PYMUPDF_OPEN, patches[_PYMUPDF_OPEN]),
+            patch(_FIND_ALL_CAPTIONS, patches[_FIND_ALL_CAPTIONS]),
+            patch(_DETECT_SECTIONS, patches[_DETECT_SECTIONS]),
+            patch(_DETECT_ABSTRACT, patches[_DETECT_ABSTRACT]),
+            patch(_COMPUTE_STATS, patches[_COMPUTE_STATS]),
+            patch(_COMPUTE_COMPLETENESS, patches[_COMPUTE_COMPLETENESS]),
+            patch(_ASSIGN_HEADING, patches[_ASSIGN_HEADING]),
+            patch(_ASSIGN_CONTINUATION, patches[_ASSIGN_CONTINUATION]),
+            patch(_EXTRACT_FIGURES, patches[_EXTRACT_FIGURES]),
+        ):
+            extraction = _extract_and_resolve(pdf, mock_api)
+
+        assert mock_api.extract_tables_batch.call_count == 3
         assert len(extraction.tables) == 1
         assert extraction.tables[0].rows == [["original"]]
 
