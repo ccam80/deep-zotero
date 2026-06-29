@@ -31,96 +31,70 @@ except ImportError:
         pass
 
 
-def _get_ancestor_pid():
-    """
-    Get the PID to monitor for parent death.
+def _watch_stdin_pipe_windows() -> None:
+    """Force-exit when the stdin pipe to the parent breaks.
 
-    On Windows with subprocess.Popen, there may be an intermediate process
-    between the actual parent (Claude Code) and this process. We need to
-    find the real parent by walking up the process tree.
+    The MCP server's lifeline is its stdin pipe. When the parent (Claude Code)
+    dies the pipe breaks -- but Windows does not propagate parent death, the
+    parent-PID is not updated, and a console-script launcher shim may sit
+    between this process and the real parent, so neither a parent-handle wait
+    nor the stdio read loop's EOF reliably fires. PeekNamedPipe inspects the
+    pipe directly and non-destructively: once the write end is gone it reports
+    ERROR_BROKEN_PIPE, and we exit regardless of what the read loop is doing.
     """
-    if sys.platform != 'win32':
-        return os.getppid()
-
     import ctypes
     from ctypes import wintypes
 
-    ntdll = ctypes.WinDLL('ntdll')
-
-    class PROCESS_BASIC_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ('Reserved1', ctypes.c_void_p),
-            ('PebBaseAddress', ctypes.c_void_p),
-            ('Reserved2', ctypes.c_void_p * 2),
-            ('UniqueProcessId', wintypes.HANDLE),
-            ('InheritedFromUniqueProcessId', wintypes.HANDLE),
-        ]
-
+    STD_INPUT_HANDLE = -10
+    ERROR_BROKEN_PIPE = 109
+    ERROR_INVALID_HANDLE = 6
     kernel32 = ctypes.windll.kernel32
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    kernel32.GetStdHandle.restype = wintypes.HANDLE
+    kernel32.GetStdHandle.argtypes = (wintypes.DWORD,)
+    kernel32.PeekNamedPipe.restype = wintypes.BOOL
+    kernel32.PeekNamedPipe.argtypes = (
+        wintypes.HANDLE,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+    if not handle or handle == wintypes.HANDLE(-1).value:
+        return  # no stdin handle to watch
+    while True:
+        time.sleep(1.0)
+        if not kernel32.PeekNamedPipe(handle, None, 0, None, None, None):
+            err = kernel32.GetLastError()
+            if err == ERROR_BROKEN_PIPE:
+                os._exit(0)  # parent closed the pipe -- we are orphaned
+            if err == ERROR_INVALID_HANDLE:
+                return  # stdin is not a pipe (manual console run) -- stop watching
 
-    def get_parent_pid(pid):
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            return None
-        pbi = PROCESS_BASIC_INFORMATION()
-        ret_len = ctypes.c_ulong()
-        status = ntdll.NtQueryInformationProcess(
-            handle, 0, ctypes.byref(pbi), ctypes.sizeof(pbi), ctypes.byref(ret_len)
-        )
-        kernel32.CloseHandle(handle)
-        if status == 0:
-            return int(pbi.InheritedFromUniqueProcessId)
-        return None
 
-    # Get parent and grandparent
-    parent_pid = os.getppid()
-    grandparent_pid = get_parent_pid(parent_pid)
+def _watch_parent_posix() -> None:
+    """Force-exit when the parent process dies.
 
-    # Return grandparent if available (skips intermediate process), else parent
-    return grandparent_pid if grandparent_pid else parent_pid
-
-
-def _start_parent_monitor():
+    On POSIX a console_script is an exec'd shebang script (no launcher shim),
+    so getppid() is the real parent, and a dead parent reparents us to init.
     """
-    Monitor parent process and exit when it dies.
-
-    When the parent process (Claude Code) terminates, this process should
-    also exit. Without this monitor, the asyncio event loop may hang
-    indefinitely, leaving orphaned processes that consume CPU.
-    """
-    target_pid = _get_ancestor_pid()
-
-    def monitor():
-        if sys.platform == 'win32':
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-
-            SYNCHRONIZE = 0x00100000
-            handle = kernel32.OpenProcess(SYNCHRONIZE, False, target_pid)
-
-            if handle:
-                # Wait for process to exit (blocks until process dies)
-                INFINITE = 0xFFFFFFFF
-                kernel32.WaitForSingleObject(handle, INFINITE)
-                kernel32.CloseHandle(handle)
-        else:
-            # Unix: poll parent PID
-            while True:
-                time.sleep(1.0)
-                try:
-                    os.kill(target_pid, 0)
-                except (OSError, PermissionError):
-                    break
-
-        os._exit(0)
-
-    thread = threading.Thread(target=monitor, daemon=True)
-    thread.start()
+    ppid = os.getppid()
+    while os.getppid() == ppid:
+        time.sleep(2.0)
+    os._exit(0)
 
 
-# Start parent monitor before anything else
-_start_parent_monitor()
+def _install_parent_death_watchdog() -> None:
+    """Start a daemon thread that force-exits this process once its connection
+    to the parent (Claude Code) is gone -- a safety net for when the stdio read
+    loop fails to observe shutdown and orphans the process."""
+    target = _watch_stdin_pipe_windows if sys.platform == "win32" else _watch_parent_posix
+    threading.Thread(target=target, name="parent-death-watchdog", daemon=True).start()
+
+
+# Force-exit if the parent (Claude Code) connection is lost.
+_install_parent_death_watchdog()
 
 mcp = FastMCP("deep-zotero")
 
@@ -1418,3 +1392,7 @@ def get_vision_costs(last_n: int = 10) -> dict:
 
 if __name__ == "__main__":
     mcp.run()
+    # mcp.run() returned: stdin hit EOF while the parent is still alive
+    # (/reload-plugins, or the MCP server was disabled). Hard-exit so a
+    # lingering non-daemon thread cannot keep the process alive.
+    os._exit(0)
