@@ -14,6 +14,7 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 - A [Gemini API key](https://aistudio.google.com/app/apikey) for embeddings (unless using `embedding_provider: "local"`)
 - An [Anthropic API key](https://console.anthropic.com/) for vision-based table extraction (optional but recommended)
 - A Zotero installation with PDFs in `storage/`
+- **Tesseract-OCR** — only needed to OCR scanned / image-only PDF pages. Install [Tesseract](https://github.com/tesseract-ocr/tesseract) with the language data you need, then set the `TESSDATA_PREFIX` environment variable to its `tessdata` directory (e.g. `C:\Program Files\Tesseract-OCR\tessdata`). PyMuPDF locates the OCR data via that variable; without it, scanned pages are skipped (`"OCR disabled because Tesseract language data not found."`). Text-based PDFs do not need Tesseract.
 
 ## Install
 
@@ -33,11 +34,10 @@ For vision table extraction:
 ### 1. Configuration
 
 ```bash
-mkdir -p ~/.config/deep-zotero
-cp config.example.json ~/.config/deep-zotero/config.json
+cp config.example.json config.json
 ```
 
-Edit `~/.config/deep-zotero/config.json`:
+Edit `config.json` (lives in the repo root, next to `config.example.json`; gitignored so your keys are never committed):
 
 ```json
 {
@@ -48,7 +48,7 @@ Edit `~/.config/deep-zotero/config.json`:
 }
 ```
 
-All other fields have sensible defaults. You can also set `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` as environment variables instead.
+All other fields have sensible defaults. You can also set `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` as environment variables instead. To load the config from a different location, point the `DEEP_ZOTERO_CONFIG` environment variable at it, or pass `--config PATH` to the CLI.
 
 ### 2. API keys
 
@@ -98,31 +98,26 @@ You can also trigger indexing from the MCP client via the `index_library` tool.
 
 ### 4. Register the MCP server
 
-Add to your Claude Code settings (`~/.claude/settings.json`):
+The repo ships `.mcp.json.example` as a template (the real `.mcp.json` is gitignored because the interpreter path is machine-specific). Copy it and set the `command` to your venv's Python:
+
+```bash
+cp .mcp.json.example .mcp.json
+```
 
 ```json
 {
     "mcpServers": {
         "deep-zotero": {
-            "command": "/path/to/.venv/bin/python",
+            "command": "C:\\path\\to\\zotero_citation_mcp\\.venv\\Scripts\\python.exe",
             "args": ["-m", "deep_zotero.server"]
         }
     }
 }
 ```
 
-On Windows:
+On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python`. Claude Code auto-loads a project-scoped `.mcp.json` from the repo root; alternatively, put the same `mcpServers` block in `~/.claude/settings.json`.
 
-```json
-{
-    "mcpServers": {
-        "deep-zotero": {
-            "command": "C:\\path\\to\\.venv\\Scripts\\python.exe",
-            "args": ["-m", "deep_zotero.server"]
-        }
-    }
-}
-```
+If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
 Restart Claude Code. All 13 tools will be available.
 

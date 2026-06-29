@@ -37,13 +37,35 @@ class Config:
     vision_model: str
     anthropic_api_key: str | None
 
+    # src/deep_zotero/config.py -> parents[2] is the repo root (next to
+    # config.example.json) for an editable (`pip install -e .`) clone, which is
+    # how deep-zotero is meant to run.
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+    @classmethod
+    def default_config_path(cls) -> Path:
+        """Resolve the default config path.
+
+        Order: the ``DEEP_ZOTERO_CONFIG`` environment variable if set, otherwise
+        ``config.json`` in the repo root. There is intentionally no user-global
+        (``~/.config``) fallback — the config lives alongside the repo clone.
+        """
+        env_path = os.environ.get("DEEP_ZOTERO_CONFIG")
+        if env_path:
+            return Path(env_path).expanduser()
+        return cls._REPO_ROOT / "config.json"
+
     @classmethod
     def load(cls, path: Path | str | None = None) -> "Config":
-        """Load config from file and/or environment."""
+        """Load config from file and/or environment.
+
+        When ``path`` is not given, falls back to :meth:`default_config_path`
+        (``DEEP_ZOTERO_CONFIG`` env var, else repo-root ``config.json``).
+        """
         if path is not None:
             config_path = Path(path).expanduser()
         else:
-            config_path = Path("~/.config/deep-zotero/config.json").expanduser()
+            config_path = cls.default_config_path()
 
         data = {}
         if config_path.exists():

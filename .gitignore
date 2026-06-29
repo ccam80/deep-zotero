@@ -1,5 +1,9 @@
 /.venv/
 /.claude/
+# Real config holds API keys; config.example.json is the committed template.
+/config.json
+# Machine-specific MCP wiring; .mcp.json.example is the committed template.
+/.mcp.json
 pytest_cache/
 __pycache__/
 *.pyc
