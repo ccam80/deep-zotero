@@ -31,6 +31,7 @@ def _make_config(tmp_path, **overrides):
         embedding_provider="local",
         embedding_timeout=120.0,
         embedding_max_retries=3,
+        embedding_rate_limit_backoff=30.0,
         rerank_alpha=0.7,
         rerank_section_weights=None,
         rerank_journal_weights=None,

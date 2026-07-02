@@ -20,6 +20,7 @@ class Config:
     # Embedding settings
     embedding_timeout: float
     embedding_max_retries: int
+    embedding_rate_limit_backoff: float  # seconds to wait on HTTP 429 (per-minute quota)
     # Reranking settings
     rerank_alpha: float
     rerank_section_weights: dict[str, float] | None
@@ -85,6 +86,7 @@ class Config:
             # Embedding settings
             embedding_timeout=data.get("embedding_timeout", 120.0),
             embedding_max_retries=data.get("embedding_max_retries", 3),
+            embedding_rate_limit_backoff=data.get("embedding_rate_limit_backoff", 30.0),
             # Reranking settings
             rerank_alpha=data.get("rerank_alpha", 0.7),
             rerank_section_weights=data.get("rerank_section_weights"),

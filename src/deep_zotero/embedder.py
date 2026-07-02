@@ -33,6 +33,7 @@ class Embedder:
         api_key: str | None = None,
         timeout: float = 120.0,
         max_retries: int = 3,
+        rate_limit_backoff: float = 30.0,
     ):
         from google import genai
         # Uses GEMINI_API_KEY env var if api_key not provided
@@ -44,6 +45,18 @@ class Embedder:
         self.dimensions = dimensions
         self.timeout = timeout
         self.max_retries = max_retries
+        # Fixed backoff (seconds) for HTTP 429 rate-limit responses. Gemini quota
+        # is enforced per-minute, so exponential backoff (2s/4s) exhausts retries
+        # long before the window resets. A ~30s wait spans that window.
+        self.rate_limit_backoff = rate_limit_backoff
+
+    @staticmethod
+    def _is_rate_limit(exc: Exception) -> bool:
+        """True if the exception is a Gemini 429 / RESOURCE_EXHAUSTED response."""
+        if getattr(exc, "code", None) == 429 or getattr(exc, "status_code", None) == 429:
+            return True
+        text = str(exc)
+        return "429" in text or "RESOURCE_EXHAUSTED" in text
 
     def _embed_batch_with_timeout(
         self, batch: list[str], task_type: str, batch_num: int, total_batches: int
@@ -77,19 +90,25 @@ class Embedder:
                 return [e.values for e in response.embeddings]
 
             except concurrent.futures.TimeoutError:
+                rate_limited = False
                 logger.warning(
                     f"Batch {batch_num}/{total_batches} timed out after "
                     f"{self.timeout}s (attempt {attempt}/{self.max_retries})"
                 )
             except Exception as e:
+                rate_limited = self._is_rate_limit(e)
                 logger.warning(
                     f"Batch {batch_num}/{total_batches} failed "
                     f"(attempt {attempt}/{self.max_retries}): {type(e).__name__}: {e}"
                 )
 
             if attempt < self.max_retries:
-                backoff = 2 ** attempt
-                logger.info(f"Retrying in {backoff}s...")
+                if rate_limited:
+                    backoff = self.rate_limit_backoff
+                    logger.info(f"Rate limited (429); retrying in {backoff}s...")
+                else:
+                    backoff = 2 ** attempt
+                    logger.info(f"Retrying in {backoff}s...")
                 time.sleep(backoff)
 
         raise EmbeddingError(
@@ -216,6 +235,7 @@ def create_embedder(config: "Config"):
             api_key=config.gemini_api_key,
             timeout=config.embedding_timeout,
             max_retries=config.embedding_max_retries,
+            rate_limit_backoff=config.embedding_rate_limit_backoff,
         )
     else:
         raise ValueError(
