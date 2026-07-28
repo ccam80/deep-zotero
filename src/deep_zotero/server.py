@@ -1098,6 +1098,7 @@ def search_boolean(
     - No phrase search ("heart rate" searches for both words, not the phrase)
     - No stemming ("running" won't match "run")
     - Requires Zotero to have indexed the PDFs
+    - Only returns papers that are in the semantic index
 
     Args:
         query: Space-separated search terms (case-insensitive)
@@ -1106,8 +1107,8 @@ def search_boolean(
         year_max: Maximum publication year filter
 
     Returns:
-        List of matching papers with metadata (no passages - use search_papers
-        for passage retrieval on specific papers)
+        List of matching indexed papers with metadata (no passages - use
+        search_papers for passage retrieval on specific papers)
     """
     from .zotero_client import ZoteroClient
 
@@ -1117,7 +1118,7 @@ def search_boolean(
         _config = Config.load()
 
     zotero = ZoteroClient(_config.zotero_data_dir)
-    matching_keys = zotero.search_fulltext(query, operator)
+    matching_keys = zotero.search_fulltext(query, operator) & _get_store().get_indexed_doc_ids()
 
     if not matching_keys:
         return []
