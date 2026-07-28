@@ -999,6 +999,37 @@ def index_library(
 
 
 @mcp.tool()
+def refresh_citation_keys(dry_run: bool = True) -> dict:
+    """Backfill citation keys in the existing index without re-indexing PDFs.
+
+    Reads current native Zotero citation keys, with legacy Better BibTeX keys
+    used only when a native key is absent, then updates metadata on every text,
+    table, and figure record for each indexed document.  No PDF extraction,
+    chunking, embedding, or vector regeneration occurs.
+
+    Args:
+        dry_run: Report proposed changes without mutating Chroma (default True)
+
+    Returns:
+        Document- and record-level examined, changed, unchanged, missing, and
+        failure counts.  In dry-run mode, changed counts mean "would change".
+    """
+    from .zotero_client import ZoteroClient
+
+    global _config
+    if _config is None:
+        _config = Config.load()
+
+    errors = _config.validate()
+    if errors:
+        raise ToolError(f"Config errors: {'; '.join(errors)}")
+
+    zotero = ZoteroClient(_config.zotero_data_dir)
+    citation_keys = zotero.get_citation_keys()
+    return _get_store().refresh_citation_keys(citation_keys, dry_run=dry_run)
+
+
+@mcp.tool()
 def get_index_stats() -> dict:
     """Get statistics about the indexed collection."""
     _get_retriever()  # Ensure initialized

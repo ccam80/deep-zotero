@@ -124,17 +124,65 @@ class ZoteroClient:
         if not self.db_path.exists():
             raise FileNotFoundError(f"Zotero database not found: {self.db_path}")
 
-    def _load_citation_keys(self) -> dict[str, str]:
-        """Load BetterBibTeX citation keys. Returns itemKey -> citationKey mapping."""
+    def _load_native_citation_keys(self) -> dict[str, str]:
+        """Load Zotero's native citation-key field by schema name.
+
+        Modern Zotero versions store citation keys in the normal item-data EAV
+        tables.  The field ID is library/schema dependent, so it must be
+        resolved through ``fields.fieldName`` rather than hard-coded.
+        """
+        conn = sqlite3.connect(
+            f"file:{self.db_path}?mode=ro&immutable=1",
+            uri=True,
+        )
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("""
+                SELECT items."key" AS itemKey, itemDataValues.value AS citationKey
+                FROM itemData
+                JOIN fields ON itemData.fieldID = fields.fieldID
+                JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
+                JOIN items ON itemData.itemID = items.itemID
+                WHERE fields.fieldName = 'citationKey'
+            """).fetchall()
+            return {
+                row["itemKey"]: row["citationKey"].strip()
+                for row in rows
+                if row["citationKey"] and row["citationKey"].strip()
+            }
+        finally:
+            conn.close()
+
+    def _load_legacy_citation_keys(self) -> dict[str, str]:
+        """Load keys from the legacy Better BibTeX sidecar, when present."""
         if not self.bbt_db_path.exists():
             return {}
-        conn = sqlite3.connect(f"file:{self.bbt_db_path}?mode=ro&immutable=1", uri=True)
+        conn = sqlite3.connect(f"file:{self.bbt_db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute("SELECT itemKey, citationKey FROM citationkey").fetchall()
-            return {row["itemKey"]: row["citationKey"] for row in rows}
+            return {
+                row["itemKey"]: row["citationKey"].strip()
+                for row in rows
+                if row["citationKey"] and row["citationKey"].strip()
+            }
         finally:
             conn.close()
+
+    def _load_citation_keys(self) -> dict[str, str]:
+        """Return itemKey -> citationKey with deterministic source precedence.
+
+        Native Zotero keys are authoritative.  The legacy Better BibTeX
+        sidecar fills only items that have no non-empty native key, allowing
+        partial migrations and old libraries to work without ambiguity.
+        """
+        citation_keys = self._load_legacy_citation_keys()
+        citation_keys.update(self._load_native_citation_keys())
+        return citation_keys
+
+    def get_citation_keys(self) -> dict[str, str]:
+        """Return all available citation keys without loading PDFs or items."""
+        return self._load_citation_keys()
 
     def _resolve_pdf_path(self, path_field: str | None, link_mode: int, attachment_key: str) -> Path | None:
         """
@@ -173,7 +221,7 @@ class ZoteroClient:
         finally:
             conn.close()
 
-        citation_keys = self._load_citation_keys()
+        citation_keys = self.get_citation_keys()
 
         items = []
         for row in rows:
