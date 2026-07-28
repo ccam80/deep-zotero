@@ -14,6 +14,8 @@ from deep_zotero.feature_extraction.vision_api import (
     VisionAPI,
     TableVisionSpec,
     _append_cost_entry,
+    _CUSTOM_ID_RE,
+    build_custom_id,
 )
 
 
@@ -411,3 +413,91 @@ class TestExtractTablesBatch:
 
         mock_prepare.assert_called_once_with(spec)
         mock_build.assert_called_once_with(spec, fake_images)
+
+
+# ---------------------------------------------------------------------------
+# custom_id hardening
+# ---------------------------------------------------------------------------
+
+class TestBuildCustomId:
+    def test_plain_ids_pass_through(self):
+        assert build_custom_id("5SIZVS65__p3_t0") == "5SIZVS65__p3_t0__transcriber"
+
+    @pytest.mark.parametrize("table_id", [
+        "noname1.pdf__p8_t0",          # dot — the Batch API rejects it
+        "my paper__p1_t0",             # space
+        "café/note__p1_t0",            # non-ascii and slash
+        "a+b=c__p1_t0",                # punctuation
+    ])
+    def test_illegal_characters_are_sanitised(self, table_id):
+        assert _CUSTOM_ID_RE.match(build_custom_id(table_id))
+
+    def test_over_long_ids_are_truncated_to_the_limit(self):
+        cid = build_custom_id("x" * 200)
+        assert len(cid) == 64
+        assert _CUSTOM_ID_RE.match(cid)
+
+    def test_distinct_long_ids_do_not_collide(self):
+        a = build_custom_id("y" * 100 + "_a")
+        b = build_custom_id("y" * 100 + "_b")
+        assert a != b
+
+    def test_is_deterministic(self):
+        assert build_custom_id("noname1.pdf__p8_t0") == build_custom_id("noname1.pdf__p8_t0")
+
+    def test_role_is_included(self):
+        assert build_custom_id("t1", "recrop") != build_custom_id("t1", "transcriber")
+
+
+class TestValidateCustomIds:
+    def test_accepts_generated_ids(self):
+        reqs = [{"custom_id": build_custom_id(f"doc__p1_t{i}")} for i in range(3)]
+        VisionAPI._validate_custom_ids(reqs)
+
+    def test_rejects_illegal_id_naming_the_index(self):
+        reqs = [{"custom_id": "ok_1"}, {"custom_id": "bad.id"}]
+        with pytest.raises(ValueError, match=r"requests\[1\]"):
+            VisionAPI._validate_custom_ids(reqs)
+
+    def test_rejects_over_long_id(self):
+        with pytest.raises(ValueError):
+            VisionAPI._validate_custom_ids([{"custom_id": "a" * 65}])
+
+    def test_rejects_duplicates(self):
+        reqs = [{"custom_id": "same"}, {"custom_id": "same"}]
+        with pytest.raises(ValueError, match="Duplicate"):
+            VisionAPI._validate_custom_ids(reqs)
+
+    def test_create_batch_validates_before_calling_the_api(self):
+        api = _make_api()
+        api._client = MagicMock()
+
+        with pytest.raises(ValueError):
+            api._create_batch([{"custom_id": "bad.id"}])
+
+        api._client.messages.batches.create.assert_not_called()
+
+
+class TestCostAttribution:
+    def test_table_id_keeps_its_doc_prefix(self, tmp_path):
+        """cid.split('__')[0] would record the doc key as the table_id."""
+        api = _make_api()
+        api._cost_log_path = tmp_path / "costs.json"
+
+        cid = build_custom_id("noname2__p8_t0")
+        usage = MagicMock(input_tokens=10, output_tokens=20,
+                          cache_creation_input_tokens=0, cache_read_input_tokens=0)
+        message = MagicMock(usage=usage)
+        message.content = [MagicMock(text=_valid_json_response())]
+        result = MagicMock(custom_id=cid)
+        result.result = MagicMock(type="succeeded", message=message)
+
+        api._client.messages.batches.retrieve.return_value = MagicMock(processing_status="ended")
+        api._client.messages.batches.results.return_value = [result]
+
+        with patch("deep_zotero.feature_extraction.vision_api.time.sleep"):
+            api._poll_batch("batch_1", expected_count=1)
+
+        entries = json.loads(api._cost_log_path.read_text(encoding="utf-8"))
+        assert entries[0]["table_id"] == "noname2__p8_t0"
+        assert entries[0]["agent_role"] == "transcriber"

@@ -9,7 +9,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 class EmbeddingError(Exception):
     """Raised when embedding fails after retries."""
 
@@ -58,6 +57,10 @@ class Embedder:
         text = str(exc)
         return "429" in text or "RESOURCE_EXHAUSTED" in text
 
+    def _backoff_seconds(self, rate_limited: bool, attempt: int) -> float:
+        """Seconds to wait before the next retry."""
+        return self.rate_limit_backoff if rate_limited else 2 ** attempt
+
     def _embed_batch_with_timeout(
         self, batch: list[str], task_type: str, batch_num: int, total_batches: int
     ) -> list[list[float]]:
@@ -103,11 +106,10 @@ class Embedder:
                 )
 
             if attempt < self.max_retries:
+                backoff = self._backoff_seconds(rate_limited, attempt)
                 if rate_limited:
-                    backoff = self.rate_limit_backoff
                     logger.info(f"Rate limited (429); retrying in {backoff}s...")
                 else:
-                    backoff = 2 ** attempt
                     logger.info(f"Retrying in {backoff}s...")
                 time.sleep(backoff)
 
