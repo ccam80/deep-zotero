@@ -319,17 +319,5 @@ temp ChromaDB, and asserts on extraction and retrieval quality. It writes
 .venv/Scripts/python.exe tests/stress_test_real_library.py
 ```
 
-### Local vision model
-
-The stress test can drive a local vLLM server instead of the Anthropic API, for
-iterating on prompts and geometry without per-table cost:
-
-```bash
-docker compose -f tools/docker/docker-compose.local-vision.yml up
-.venv/Scripts/python.exe tests/stress_test_real_library.py --local-vision
-```
-
-The compose file serves `Qwen/Qwen2-VL-2B-Instruct` on port 8118 (needs an NVIDIA GPU),
-matching the `--vision-url` / `--vision-model` defaults. Override either flag to try a
-different model. Local vision is a development aid only — the indexer itself always uses
-the Anthropic Batch API.
+`--vision-only` re-runs just the vision extraction against an existing
+`_stress_test_debug.db`, optionally narrowed to one paper with `--paper KEY`.

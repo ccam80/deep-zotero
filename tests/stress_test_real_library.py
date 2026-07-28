@@ -513,11 +513,7 @@ class StressTestReport:
 # Main stress test runner
 # ---------------------------------------------------------------------------
 
-def run_stress_test(
-    *,
-    local_vision_url: str | None = None,
-    local_vision_model: str | None = None,
-):
+def run_stress_test():
     """Run the full stress test and return the report and extractions."""
     logging.basicConfig(
         level=logging.WARNING,
@@ -616,24 +612,16 @@ def run_stress_test(
         reranker = Reranker(alpha=0.7)
         retriever = Retriever(store)
 
-        # Construct vision API (local vLLM or Anthropic)
+        # Construct vision API
         vision_api = None
-        if local_vision_url is not None:
-            from deep_zotero.feature_extraction.local_vision_api import LocalVisionAPI
-            vision_api = LocalVisionAPI(
-                base_url=local_vision_url,
-                model=local_vision_model or "Qwen/Qwen2-VL-2B-Instruct",
-            )
-            print(f"  Local vision API enabled (model: {vision_api._model}, url: {vision_api._base_url})")
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if api_key:
+            from deep_zotero.feature_extraction.vision_api import VisionAPI
+            vision_cost_log = test_dir / "vision_costs.json"
+            vision_api = VisionAPI(api_key=api_key, cost_log_path=vision_cost_log)
+            print(f"  Vision API enabled (model: {vision_api._model})")
         else:
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if api_key:
-                from deep_zotero.feature_extraction.vision_api import VisionAPI
-                vision_cost_log = test_dir / "vision_costs.json"
-                vision_api = VisionAPI(api_key=api_key, cost_log_path=vision_cost_log)
-                print(f"  Vision API enabled (model: {vision_api._model})")
-            else:
-                print("  Vision API disabled (no ANTHROPIC_API_KEY)")
+            print("  Vision API disabled (no ANTHROPIC_API_KEY)")
 
         t_start = time.perf_counter()
 
@@ -1980,13 +1968,7 @@ def _load_corpus_items():
     return corpus_items, skipped
 
 
-def run_vision_only(
-    paper_filter: str | None,
-    db_path: Path,
-    *,
-    local_vision_url: str | None = None,
-    local_vision_model: str | None = None,
-):
+def run_vision_only(paper_filter: str | None, db_path: Path):
     """Re-run vision API extraction, replacing old rows."""
     corpus_items, skipped = _load_corpus_items()
     for msg in skipped:
@@ -2003,21 +1985,13 @@ def run_vision_only(
 
     from deep_zotero.pdf_processor import extract_document, resolve_pending_vision
 
-    if local_vision_url is not None:
-        from deep_zotero.feature_extraction.local_vision_api import LocalVisionAPI
-        vision_api = LocalVisionAPI(
-            base_url=local_vision_url,
-            model=local_vision_model or "Qwen/Qwen2-VL-2B-Instruct",
-        )
-        print(f"\nVision-only re-run (local): {len(corpus_items)} papers, model={vision_api._model}")
-    else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            print("ERROR: ANTHROPIC_API_KEY not set (use --local-vision for local vLLM)")
-            sys.exit(1)
-        from deep_zotero.feature_extraction.vision_api import VisionAPI
-        vision_api = VisionAPI(api_key=api_key)
-        print(f"\nVision-only re-run: {len(corpus_items)} papers, model={vision_api._model}")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("ERROR: ANTHROPIC_API_KEY not set")
+        sys.exit(1)
+    from deep_zotero.feature_extraction.vision_api import VisionAPI
+    vision_api = VisionAPI(api_key=api_key)
+    print(f"\nVision-only re-run: {len(corpus_items)} papers, model={vision_api._model}")
 
     # Clear old vision rows
     for item, sn, gt in corpus_items:
@@ -2099,30 +2073,13 @@ Selective re-run examples:
   # Re-run vision API for all papers
   python stress_test_real_library.py --vision-only
 
-  # Run with local vLLM vision (Qwen2.5-VL-7B)
-  python stress_test_real_library.py --local-vision
-
-  # Run with local vLLM and a different model
-  python stress_test_real_library.py --local-vision --vision-model InternVL2_5-8B
+  # Re-run vision API for a single paper
+  python stress_test_real_library.py --vision-only --paper SCPXVBLY
 """,
     )
     p.add_argument(
         "--vision-only", action="store_true",
-        help="Only re-run vision API extraction (requires ANTHROPIC_API_KEY or --local-vision)",
-    )
-    p.add_argument(
-        "--local-vision", action="store_true",
-        help="Use local vLLM server instead of Anthropic API for vision extraction",
-    )
-    p.add_argument(
-        "--vision-model",
-        default="Qwen/Qwen2-VL-2B-Instruct",
-        help="Model name for local vision (default: Qwen/Qwen2-VL-2B-Instruct)",
-    )
-    p.add_argument(
-        "--vision-url",
-        default="http://localhost:8118/v1",
-        help="vLLM server URL (default: http://localhost:8118/v1)",
+        help="Only re-run vision API extraction (requires ANTHROPIC_API_KEY)",
     )
     p.add_argument(
         "--paper",
@@ -2149,11 +2106,7 @@ if __name__ == "__main__":
         if not args.db.exists():
             print(f"ERROR: database not found at {args.db}")
             sys.exit(1)
-        run_vision_only(
-            args.paper, args.db,
-            local_vision_url=args.vision_url if args.local_vision else None,
-            local_vision_model=args.vision_model if args.local_vision else None,
-        )
+        run_vision_only(args.paper, args.db)
         sys.exit(0)
 
     # --- Mode: full stress test (default) ---
@@ -2162,10 +2115,7 @@ if __name__ == "__main__":
     print("  Real papers, real searches, real expectations")
     print("=" * 70)
 
-    report, extractions = run_stress_test(
-        local_vision_url=args.vision_url if args.local_vision else None,
-        local_vision_model=args.vision_model if args.local_vision else None,
-    )
+    report, extractions = run_stress_test()
 
     base_dir = Path(__file__).parent.parent
     report_path = base_dir / "STRESS_TEST_REPORT.md"
