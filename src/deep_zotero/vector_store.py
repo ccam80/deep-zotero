@@ -3,6 +3,7 @@ import logging
 import re
 import chromadb
 from chromadb.config import Settings
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 from .models import Chunk, StoredChunk
@@ -12,6 +13,8 @@ if TYPE_CHECKING:
     from .models import ExtractedTable
 
 logger = logging.getLogger(__name__)
+
+METADATA_SCAN_BATCH = 5000
 
 
 def _ref_chunk_index(ref_map: dict, element_type: str, item) -> int:
@@ -493,3 +496,20 @@ class VectorStore:
         if results["metadatas"]:
             return results["metadatas"][0]
         return None
+
+    def iter_metadatas(self, batch_size: int = METADATA_SCAN_BATCH) -> Iterator[dict]:
+        """Yield the metadata of every chunk in the collection, one page at a time."""
+        offset = 0
+        while True:
+            batch = self.collection.get(
+                limit=batch_size,
+                offset=offset,
+                include=["metadatas"],
+            )
+            metadatas = batch.get("metadatas") or []
+            if not metadatas:
+                return
+            yield from metadatas
+            if len(metadatas) < batch_size:
+                return
+            offset += len(metadatas)

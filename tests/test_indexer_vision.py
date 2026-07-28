@@ -29,7 +29,6 @@ def _make_config(tmp_path: Path) -> Config:
         rerank_enabled=True,
         oversample_multiplier=3,
         oversample_topic_factor=5,
-        stats_sample_limit=10000,
         ocr_language="eng",
         openalex_email=None,
         vision_enabled=True,

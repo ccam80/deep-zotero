@@ -7,6 +7,7 @@ import threading
 from collections import defaultdict
 from dataclasses import replace
 from fastmcp import FastMCP
+from . import index_stats
 from .config import Config
 from .embedder import Embedder
 from .vector_store import VectorStore
@@ -1030,48 +1031,19 @@ def refresh_citation_keys(dry_run: bool = True) -> dict:
 
 
 @mcp.tool()
-def get_index_stats() -> dict:
-    """Get statistics about the indexed collection."""
+def get_index_stats(refresh: bool = False) -> dict:
+    """
+    Get statistics about the indexed collection.
+
+    Args:
+        refresh: Force a recount instead of using the cached payload
+
+    Returns:
+        Document/chunk totals, section, journal-quartile and chunk-type
+        coverage, plus 'computed_at' and 'cached'.
+    """
     _get_retriever()  # Ensure initialized
-    store = _get_store()
-    doc_ids = store.get_indexed_doc_ids()
-    total_chunks = store.count()
-
-    # Get section, journal, and chunk type coverage from a sample of chunks
-    # (Getting all chunks would be expensive for large collections)
-    sample = store.collection.get(limit=_config.stats_sample_limit, include=["metadatas"])
-
-    section_counts: dict[str, int] = defaultdict(int)
-    journal_doc_quartiles: dict[str, str] = {}  # doc_id -> quartile
-    chunk_type_counts: dict[str, int] = defaultdict(int)
-
-    if sample["metadatas"]:
-        for meta in sample["metadatas"]:
-            section = meta.get("section", "unknown")
-            section_counts[section] += 1
-
-            chunk_type = meta.get("chunk_type", "text")
-            chunk_type_counts[chunk_type] += 1
-
-            doc_id = meta.get("doc_id", "")
-            quartile = meta.get("journal_quartile", "")
-            if doc_id and doc_id not in journal_doc_quartiles:
-                journal_doc_quartiles[doc_id] = quartile
-
-    # Count documents per quartile
-    journal_counts: dict[str, int] = defaultdict(int)
-    for quartile in journal_doc_quartiles.values():
-        key = quartile if quartile else "unknown"
-        journal_counts[key] += 1
-
-    return {
-        "total_documents": len(doc_ids),
-        "total_chunks": total_chunks,
-        "avg_chunks_per_doc": round(total_chunks / len(doc_ids), 1) if doc_ids else 0,
-        "section_coverage": dict(section_counts),
-        "journal_coverage": dict(journal_counts),
-        "chunk_types": dict(chunk_type_counts),
-    }
+    return index_stats.get_index_stats(_get_store(), refresh=refresh)
 
 
 @mcp.tool()
@@ -1126,6 +1098,7 @@ def search_boolean(
     - No phrase search ("heart rate" searches for both words, not the phrase)
     - No stemming ("running" won't match "run")
     - Requires Zotero to have indexed the PDFs
+    - Only returns papers that are in the semantic index
 
     Args:
         query: Space-separated search terms (case-insensitive)
@@ -1134,8 +1107,8 @@ def search_boolean(
         year_max: Maximum publication year filter
 
     Returns:
-        List of matching papers with metadata (no passages - use search_papers
-        for passage retrieval on specific papers)
+        List of matching indexed papers with metadata (no passages - use
+        search_papers for passage retrieval on specific papers)
     """
     from .zotero_client import ZoteroClient
 
@@ -1145,7 +1118,7 @@ def search_boolean(
         _config = Config.load()
 
     zotero = ZoteroClient(_config.zotero_data_dir)
-    matching_keys = zotero.search_fulltext(query, operator)
+    matching_keys = zotero.search_fulltext(query, operator) & _get_store().get_indexed_doc_ids()
 
     if not matching_keys:
         return []
