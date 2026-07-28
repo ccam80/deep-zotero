@@ -48,6 +48,8 @@ Edit `config.json` (lives in the repo root, next to `config.example.json`; gitig
 
 All other fields have sensible defaults. You can also set `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` as environment variables instead. To load the config from a different location, point the `DEEP_ZOTERO_CONFIG` environment variable at it, or pass `--config PATH` to the CLI.
 
+`config.json` is optional. Installed from a wheel rather than a clone there is no repo root to hold one, so the two path settings also read `DEEP_ZOTERO_DATA_DIR` and `DEEP_ZOTERO_CHROMA_PATH` from the environment. That lets a launcher supply every setting without writing a config file. A `config.json` still takes precedence over the environment wherever both are present.
+
 ### 2. API keys
 
 **Gemini (required for default embeddings):**
@@ -127,8 +129,8 @@ Restart Claude Code. All 13 tools will be available.
 
 | Field | Default | Description |
 |---|---|---|
-| `zotero_data_dir` | `~/Zotero` | Path to Zotero's data directory (contains `zotero.sqlite` and `storage/`) |
-| `chroma_db_path` | `~/.local/share/deep-zotero/chroma` | Where the ChromaDB index is stored on disk |
+| `zotero_data_dir` | `~/Zotero` | Path to Zotero's data directory (contains `zotero.sqlite` and `storage/`). Falls back to `DEEP_ZOTERO_DATA_DIR` env var |
+| `chroma_db_path` | `~/.local/share/deep-zotero/chroma` | Where the ChromaDB index is stored on disk. Falls back to `DEEP_ZOTERO_CHROMA_PATH` env var |
 
 ### Embedding
 
