@@ -6,12 +6,14 @@ All fixtures that need to be shared across test modules should be defined here.
 from __future__ import annotations
 
 import csv
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "papers"
+_VISION_RESPONSES = Path(__file__).parent / "fixtures" / "vision_responses.json"
 _PAPER_NAMES = ["noname1.pdf", "noname2.pdf", "noname3.pdf"]
 
 
@@ -31,15 +33,56 @@ def real_papers_dir() -> Path:
 # Session-scoped extraction fixtures (run once, shared by all tests)
 # =============================================================================
 
-@pytest.fixture(scope="session")
-def extracted_papers():
-    """Extract all fixture PDFs once per session. Returns dict keyed by filename."""
-    from deep_zotero.pdf_processor import extract_document
+class _ReplayVisionAPI:
+    """Replays recorded raw responses through the real parser, so only the
+    network call is faked. An unrecorded table_id raises rather than returning
+    empty, which would silently restore the vacuous pass this prevents."""
 
-    return {
-        name: extract_document(_FIXTURES_DIR / name)
+    def __init__(self, responses: dict[str, str]):
+        self._responses = responses
+        self.requested: list[str] = []
+
+    def extract_tables_batch(self, specs):
+        from deep_zotero.feature_extraction.vision_extract import parse_agent_response
+
+        out = []
+        for spec in specs:
+            self.requested.append(spec.table_id)
+            if spec.table_id not in self._responses:
+                raise KeyError(
+                    f"No recorded vision response for table_id {spec.table_id!r}. "
+                    f"The extraction pipeline asked for a table the fixture does "
+                    f"not have — caption detection or crop geometry has changed. "
+                    f"Re-record with: python tests/record_vision_fixtures.py\n"
+                    f"Recorded ids: {sorted(self._responses)}"
+                )
+            out.append(parse_agent_response(self._responses[spec.table_id], "transcriber"))
+        return out
+
+
+@pytest.fixture(scope="session")
+def replay_vision_api():
+    """Vision API stub backed by the recorded response fixture."""
+    if not _VISION_RESPONSES.exists():
+        pytest.fail(
+            f"Missing vision response fixture: {_VISION_RESPONSES}. "
+            f"Record it with: python tests/record_vision_fixtures.py"
+        )
+    return _ReplayVisionAPI(json.loads(_VISION_RESPONSES.read_text(encoding="utf-8")))
+
+
+@pytest.fixture(scope="session")
+def extracted_papers(replay_vision_api):
+    """Extract all fixture PDFs once per session, with tables. Keyed by filename."""
+    from deep_zotero.pdf_processor import extract_document, resolve_pending_vision
+
+    # Resolved under PDF stems to match the recorded table_ids, remapped on return.
+    extractions = {
+        Path(name).stem: extract_document(_FIXTURES_DIR / name, vision_api=replay_vision_api)
         for name in _PAPER_NAMES
     }
+    resolve_pending_vision(extractions, vision_api=replay_vision_api)
+    return {name: extractions[Path(name).stem] for name in _PAPER_NAMES}
 
 
 @pytest.fixture(scope="session")

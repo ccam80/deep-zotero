@@ -7,8 +7,10 @@ Single-agent extraction logic is built on top of this layer.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -95,6 +97,27 @@ def _compute_cost(usage: object, model: str) -> float:
 # ---------------------------------------------------------------------------
 
 
+# The Batch API rejects any custom_id outside this pattern, and rejects the
+# whole batch rather than the offending request.
+_CUSTOM_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_CUSTOM_ID_MAX = 64
+_ILLEGAL_CUSTOM_ID_CHARS_RE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def build_custom_id(table_id: str, role: str = "transcriber") -> str:
+    """Build a Batch API custom_id satisfying ^[a-zA-Z0-9_-]{1,64}$.
+
+    Illegal characters are replaced and over-long ids are truncated with a hash
+    tail so distinct table_ids never collide. Deterministic: the send side and
+    the result lookup both call this.
+    """
+    safe = _ILLEGAL_CUSTOM_ID_CHARS_RE.sub("-", f"{table_id}__{role}")
+    if len(safe) > _CUSTOM_ID_MAX:
+        digest = hashlib.sha1(safe.encode("utf-8")).hexdigest()[:8]
+        safe = f"{safe[: _CUSTOM_ID_MAX - 9]}-{digest}"
+    return safe
+
+
 def _append_cost_entry(path: Path, entry: CostEntry) -> None:
     """Append a cost entry to the JSON log file."""
     entries: list[dict] = []
@@ -161,10 +184,34 @@ class VisionAPI:
     # ------------------------------------------------------------------
 
     def _create_batch(self, requests: list[dict]) -> str:
-        """Submit a batch and return the batch ID (synchronous API call)."""
+        """Submit a batch and return the batch ID (synchronous API call).
+
+        Validates custom_ids first: the API rejects the entire batch for one bad
+        id, so a local check turns an opaque 400 into a named culprit.
+        """
+        self._validate_custom_ids(requests)
         batch = self._client.messages.batches.create(requests=requests)
         logger.info("Submitted batch %s (%d requests)", batch.id, len(requests))
         return batch.id
+
+    @staticmethod
+    def _validate_custom_ids(requests: list[dict]) -> None:
+        """Raise if any custom_id is malformed or duplicated within the batch."""
+        seen: dict[str, int] = {}
+        for i, req in enumerate(requests):
+            cid = req.get("custom_id")
+            if not isinstance(cid, str) or not _CUSTOM_ID_RE.match(cid):
+                raise ValueError(
+                    f"requests[{i}].custom_id {cid!r} does not match "
+                    f"{_CUSTOM_ID_RE.pattern} — the Batch API would reject the "
+                    f"whole batch. Build it with build_custom_id()."
+                )
+            if cid in seen:
+                raise ValueError(
+                    f"Duplicate custom_id {cid!r} at requests[{i}] and "
+                    f"requests[{seen[cid]}] — results would overwrite each other."
+                )
+            seen[cid] = i
 
     def _poll_batch(
         self,
@@ -196,9 +243,11 @@ class VisionAPI:
                 results[cid] = text
 
                 usage = result.result.message.usage
-                parts = cid.split("__")
-                table_id = parts[0] if parts else cid
-                role = parts[1] if len(parts) > 1 else "unknown"
+                # rsplit: table_ids themselves contain "__" (doc_key__p3_t0), so
+                # split() would attribute the cost to the doc key alone.
+                table_id, _, role = cid.rpartition("__")
+                if not table_id:
+                    table_id, role = cid, "unknown"
                 cost = _compute_cost(usage, self._model)
                 self._session_cost += cost
                 entry = CostEntry(
@@ -338,7 +387,7 @@ class VisionAPI:
             system_blocks[0]["cache_control"] = {"type": "ephemeral"}
 
         return {
-            "custom_id": f"{spec.table_id}__transcriber",
+            "custom_id": build_custom_id(spec.table_id, "transcriber"),
             "params": {
                 "model": self._model,
                 "max_tokens": 4096,
@@ -385,7 +434,7 @@ class VisionAPI:
 
         responses: list[AgentResponse] = []
         for spec in specs:
-            raw_text = results.get(f"{spec.table_id}__transcriber")
+            raw_text = results.get(build_custom_id(spec.table_id, "transcriber"))
             if raw_text is not None:
                 responses.append(parse_agent_response(raw_text, "transcriber"))
             else:
