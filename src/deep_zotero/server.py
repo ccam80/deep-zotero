@@ -1394,9 +1394,19 @@ def get_vision_costs(last_n: int = 10) -> dict:
     }
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Run the MCP server over stdio.
+
+    Backs both the ``deep-zotero`` console script and ``python -m
+    deep_zotero.server``, so an installed wheel gets the same shutdown
+    handling as running from a clone.
+    """
     mcp.run()
     # mcp.run() returned: stdin hit EOF while the parent is still alive
     # (/reload-plugins, or the MCP server was disabled). Hard-exit so a
     # lingering non-daemon thread cannot keep the process alive.
     os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

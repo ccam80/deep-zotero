@@ -38,29 +38,38 @@ class Config:
     anthropic_api_key: str | None
 
     # src/deep_zotero/config.py -> parents[2] is the repo root (next to
-    # config.example.json) for an editable (`pip install -e .`) clone, which is
-    # how deep-zotero is meant to run.
+    # config.example.json) for an editable (`pip install -e .`) clone. For a
+    # wheel installed into site-packages it points at the environment's lib
+    # directory and holds no config, so it is only used when it exists.
     _REPO_ROOT = Path(__file__).resolve().parents[2]
 
     @classmethod
-    def default_config_path(cls) -> Path:
-        """Resolve the default config path.
+    def default_config_path(cls) -> Path | None:
+        """Resolve the default config path, or ``None`` when there isn't one.
 
         Order: the ``DEEP_ZOTERO_CONFIG`` environment variable if set, otherwise
-        ``config.json`` in the repo root. There is intentionally no user-global
-        (``~/.config``) fallback — the config lives alongside the repo clone.
+        ``config.json`` in the repo root of an editable clone. A wheel install
+        has no repo root, so this returns ``None`` and settings come from the
+        environment and the built-in defaults instead.
         """
         env_path = os.environ.get("DEEP_ZOTERO_CONFIG")
         if env_path:
             return Path(env_path).expanduser()
-        return cls._REPO_ROOT / "config.json"
+        repo_config = cls._REPO_ROOT / "config.json"
+        return repo_config if repo_config.exists() else None
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> "Config":
         """Load config from file and/or environment.
 
         When ``path`` is not given, falls back to :meth:`default_config_path`
-        (``DEEP_ZOTERO_CONFIG`` env var, else repo-root ``config.json``).
+        (``DEEP_ZOTERO_CONFIG`` env var, else repo-root ``config.json``), which
+        is ``None`` for a wheel install.
+
+        ``DEEP_ZOTERO_DATA_DIR`` and ``DEEP_ZOTERO_CHROMA_PATH`` override the
+        Zotero library and index locations. A config file still wins over them,
+        matching how the API keys already resolve, so an editable clone keeps
+        behaving exactly as before.
         """
         if path is not None:
             config_path = Path(path).expanduser()
@@ -68,13 +77,21 @@ class Config:
             config_path = cls.default_config_path()
 
         data = {}
-        if config_path.exists():
+        if config_path is not None and config_path.exists():
             with open(config_path) as f:
                 data = json.load(f)
 
         return cls(
-            zotero_data_dir=Path(data.get("zotero_data_dir", "~/Zotero")).expanduser(),
-            chroma_db_path=Path(data.get("chroma_db_path", "~/.local/share/deep-zotero/chroma")).expanduser(),
+            zotero_data_dir=Path(
+                data.get("zotero_data_dir")
+                or os.environ.get("DEEP_ZOTERO_DATA_DIR")
+                or "~/Zotero"
+            ).expanduser(),
+            chroma_db_path=Path(
+                data.get("chroma_db_path")
+                or os.environ.get("DEEP_ZOTERO_CHROMA_PATH")
+                or "~/.local/share/deep-zotero/chroma"
+            ).expanduser(),
             embedding_model=data.get("embedding_model", "gemini-embedding-001"),
             embedding_dimensions=data.get("embedding_dimensions", 768),
             chunk_size=data.get("chunk_size", 400),
