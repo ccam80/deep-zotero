@@ -1,9 +1,0 @@
-{
-  "active": true,
-  "started_at": "2026-03-01T09:54:46.349Z",
-  "original_prompt": "this library has undergone a significant refactor, and it's time to take out the trash. start a ralph loop, deleting piece of source code not used in the production feature extraction / pdf processing pileline or an mcp tool, and every test which tests these features. there is a bunch of debug scaffolding - keep the debug and vision databases and viewers, otherwise get rid of every one-off test script or file. One test file per surviving source file can remain, and no tests inside it can be duplicates. Being used in a test file does not mean code is live. Tests may be moved between test files.",
-  "session_id": "04d52932-f996-40ff-8a45-f32eeafc02fe",
-  "reinforcement_count": 0,
-  "last_checked_at": "2026-03-01T09:57:50.876Z",
-  "iteration": 2
-}

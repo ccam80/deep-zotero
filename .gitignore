@@ -1,10 +1,17 @@
 /.venv/
+
+# Agent tooling — machine/session-local, not part of the project.
 /.claude/
+/.vscode/
+.omc/
+CLAUDE.md
+
 # Real config holds API keys; config.example.json is the committed template.
 /config.json
 # Machine-specific MCP wiring; .mcp.json.example is the committed template.
 /.mcp.json
-pytest_cache/
+
+.pytest_cache/
 __pycache__/
 *.pyc
 *.pyo
@@ -12,11 +19,11 @@ __pycache__/
 
 # Stress test outputs (large, regenerated on each run)
 _stress_test_figures/
-_stress_test_debug.db
+_stress_test_debug*.db
 _FULL_EXTRACTION_AUDIT.txt
 STRESS_TEST_REPORT.md
+vision_costs.json
 
 # Agent QA workspace (generated, not checked in)
 tests/agent_qa/workspace/
 NUL
-.omc/

@@ -1,7 +1,0 @@
-{"t":0,"agent":"a9e38c7","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a9e38c7","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":139795}
-{"t":0,"agent":"a3797ff","agent_type":"unknown","event":"agent_stop","success":true}
-{"t":0,"agent":"ae3b7b3","agent_type":"unknown","event":"agent_stop","success":true}
-{"t":0,"agent":"system","event":"keyword_detected","keyword":"pipeline"}
-{"t":0,"agent":"ac9b55a","agent_type":"unknown","event":"agent_stop","success":true}
-{"t":0,"agent":"a7a8117","agent_type":"unknown","event":"agent_stop","success":true}
