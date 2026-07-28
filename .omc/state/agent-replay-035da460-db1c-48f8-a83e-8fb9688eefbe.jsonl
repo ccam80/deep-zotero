@@ -1,8 +1,0 @@
-{"t":0,"agent":"system","event":"keyword_detected","keyword":"pipeline"}
-{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:pipeline"}
-{"t":0,"agent":"a3fc7e7","agent_type":"explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a524bb3","agent_type":"explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a3fc7e7","agent_type":"explore","event":"agent_stop","success":true,"duration_ms":101505}
-{"t":0,"agent":"a524bb3","agent_type":"explore","event":"agent_stop","success":true,"duration_ms":426917}
-{"t":0,"agent":"ab57ca2","agent_type":"unknown","event":"agent_stop","success":true}
-{"t":0,"agent":"a8978b2","agent_type":"unknown","event":"agent_stop","success":true}

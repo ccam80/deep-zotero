@@ -5,7 +5,7 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 ## What it extracts
 
 - **Text** — section-aware chunks with overlap, classified by document section (abstract, methods, results, etc.)
-- **Tables** — vision-based extraction via Claude Haiku 4.5. Each table is rendered to PNG and transcribed to structured markdown (headers, rows, footnotes). Falls back to PyMuPDF heuristics if vision is disabled.
+- **Tables** — vision-based extraction via Claude Haiku 4.5. Each table is rendered to PNG and transcribed to structured markdown (headers, rows, footnotes). Table extraction is vision-only: with vision disabled, or without an Anthropic key, no tables are extracted.
 - **Figures** — detected with captions, extracted as PNGs, searchable by caption text.
 
 ## Requirements
@@ -20,14 +20,12 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e .
-```
-
-For vision table extraction:
-
-```bash
 .venv/Scripts/python.exe -m pip install -e ".[vision]"
 ```
+
+The `vision` extra pulls in the Anthropic and OpenAI clients. Without it (`pip install -e .`) the pipeline still indexes text and figures, but no tables.
+
+`commands/install.md` is a step-by-step setup runbook written for a coding agent — point Claude Code at it to have the venv, config, Tesseract, and MCP registration set up for you.
 
 ## Setup
 
@@ -56,7 +54,7 @@ All other fields have sensible defaults. You can also set `GEMINI_API_KEY` and `
 Get a key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey). Set it as `gemini_api_key` in config or `GEMINI_API_KEY` env var. If you don't want to use Gemini, set `"embedding_provider": "local"` to use ChromaDB's built-in all-MiniLM-L6-v2 model (no API key needed, lower quality).
 
 **Anthropic (required for vision table extraction):**
-Get a key at [console.anthropic.com](https://console.anthropic.com/). Set it as `anthropic_api_key` in config or `ANTHROPIC_API_KEY` env var. Without this key, tables are still extracted via PyMuPDF heuristics but accuracy on complex tables is lower. Vision extraction uses the Anthropic Batch API with Claude Haiku 4.5 — cost is roughly $0.016 per table, with prompt caching reducing cost on large batches.
+Get a key at [console.anthropic.com](https://console.anthropic.com/). Set it as `anthropic_api_key` in config or `ANTHROPIC_API_KEY` env var. Table extraction is vision-only — without this key, text and figures are still indexed but **no tables are extracted**. Vision extraction uses the Anthropic Batch API with Claude Haiku 4.5 — cost is roughly $0.016 per table, with prompt caching reducing cost on large batches.
 
 To disable vision extraction entirely:
 
@@ -142,6 +140,7 @@ Restart Claude Code. All 13 tools will be available.
 | `gemini_api_key` | `null` | Falls back to `GEMINI_API_KEY` env var |
 | `embedding_timeout` | `120.0` | Timeout in seconds for embedding API calls |
 | `embedding_max_retries` | `3` | Max retries for failed embedding calls |
+| `embedding_rate_limit_backoff` | `30.0` | Seconds to wait before retrying after an HTTP 429 (per-minute quota) |
 
 ### Chunking
 
@@ -283,10 +282,42 @@ Override per-call via `section_weights` and `journal_weights` parameters. Set a 
 
 ---
 
-## Debug viewer
+## Research agent skill
+
+`examples/zotero-research/SKILL.md` is a ready-made Claude Code skill that wraps these
+tools into a spawnable research agent — it takes a high-level research question, runs
+the appropriate searches, and returns consolidated findings with citation keys. Copy it
+into `.claude/skills/` (or your global skills directory) to use it.
+
+---
+
+## Development
+
+### Debug viewer
 
 `tools/debug_viewer.py` is a PyQt6 browser for inspecting the ChromaDB index — view papers, tables (rendered markdown vs PDF), figures, and individual chunks.
 
 ```bash
 .venv/Scripts/python.exe tools/debug_viewer.py
 ```
+
+### Tests
+
+```bash
+.venv/Scripts/python.exe -m pytest
+```
+
+Tests that make real Anthropic API calls are marked `vision_api` and excluded by
+default; run them with `-m vision_api`.
+
+`tests/stress_test_real_library.py` is the end-to-end quality gate: it pulls 10 papers
+from the live Zotero library, runs the full extraction → index → search pipeline into a
+temp ChromaDB, and asserts on extraction and retrieval quality. It writes
+`STRESS_TEST_REPORT.md` and `_stress_test_debug.db`.
+
+```bash
+.venv/Scripts/python.exe tests/stress_test_real_library.py
+```
+
+`--vision-only` re-runs just the vision extraction against an existing
+`_stress_test_debug.db`, optionally narrowed to one paper with `--paper KEY`.

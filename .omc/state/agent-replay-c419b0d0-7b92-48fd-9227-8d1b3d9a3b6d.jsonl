@@ -1,5 +1,0 @@
-{"t":0,"agent":"system","event":"keyword_detected","keyword":"pipeline"}
-{"t":0,"agent":"a360a0c","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a79b4fc","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a79b4fc","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":50317}
-{"t":0,"agent":"a360a0c","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":99002}

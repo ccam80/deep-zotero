@@ -1,3 +1,0 @@
-{"t":0,"agent":"system","event":"skill_invoked","skill_name":"claude-orchestrator:plan-spec"}
-{"t":0,"agent":"a630c26","agent_type":"unknown","event":"agent_stop","success":true}
-{"t":0,"agent":"aad4c87","agent_type":"unknown","event":"agent_stop","success":true}

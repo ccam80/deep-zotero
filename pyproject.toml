@@ -18,15 +18,11 @@ dependencies = [
     "tqdm>=4.0.0",
     "pydantic>=2.0.0",
     "rapidfuzz>=3.0.0",
-    "opencv-python>=4.0.0",
-    "camelot-py>=0.11.0",
-    "pdfplumber>=0.11.0",
 ]
 
 [project.optional-dependencies]
 vision = [
     "anthropic>=0.40.0",
-    "openai>=1.0.0",
 ]
 dev = [
     "pytest>=7.0.0",

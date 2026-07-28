@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--config", type=str, default=None,
-        help="Path to config JSON file (default: ~/.config/deep-zotero/config.json)",
+        help="Path to config JSON file (default: $DEEP_ZOTERO_CONFIG, else config.json in the repo root)",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true",
