@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tqdm import tqdm
 from .config import Config
+from .index_stats import refresh_index_stats
 from .zotero_client import ZoteroClient
 from .pdf_processor import extract_document
 from .chunker import Chunker
@@ -389,6 +390,12 @@ class Indexer:
         # Save config hash after successful indexing
         if counts["indexed"] > 0 or counts["already_indexed"] > 0:
             self._config_hash_path.write_text(current_hash)
+
+        stats = refresh_index_stats(self.store)
+        logger.info(
+            f"Index stats refreshed: {stats['total_documents']} documents, "
+            f"{stats['total_chunks']} chunks"
+        )
 
         return {"results": results, **counts}
 

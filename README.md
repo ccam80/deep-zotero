@@ -167,7 +167,6 @@ Restart Claude Code. All 13 tools will be available.
 | `rerank_journal_weights` | `null` | Override default journal quartile weights |
 | `oversample_multiplier` | `3` | Oversample factor before reranking |
 | `oversample_topic_factor` | `5` | Additional factor for `search_topic` |
-| `stats_sample_limit` | `10000` | Max chunks sampled for `get_index_stats` |
 
 ### OCR
 

@@ -28,7 +28,6 @@ class Config:
     rerank_enabled: bool
     oversample_multiplier: int
     oversample_topic_factor: int  # Additional factor for search_topic
-    stats_sample_limit: int
     # OCR settings (language passed through to pymupdf-layout)
     ocr_language: str
     # OpenAlex settings
@@ -94,7 +93,6 @@ class Config:
             rerank_enabled=data.get("rerank_enabled", True),
             oversample_multiplier=data.get("oversample_multiplier", 3),
             oversample_topic_factor=data.get("oversample_topic_factor", 5),
-            stats_sample_limit=data.get("stats_sample_limit", 10000),
             # OCR settings — language passed through to pymupdf-layout
             ocr_language=data.get("ocr_language", "eng"),
             # OpenAlex settings
