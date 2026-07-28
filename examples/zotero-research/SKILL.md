@@ -56,7 +56,7 @@ Citation graph results are metadata from an external service. Use them only to o
 
 | Tool | Purpose |
 |------|---------|
-| `get_index_stats` | Corpus totals (`total_documents`, `total_chunks`, `avg_chunks_per_doc`) plus `section_coverage`, `journal_coverage`, and `chunk_types` distributions counted from a capped metadata sample. Library-wide and query-independent: it tells you whether the index is populated, never whether a particular claim is covered. |
+| `get_index_stats` | Library-wide totals and section/journal/chunk-type distributions, from a capped metadata sample. |
 | `get_reranking_config` | Current section/journal weights, alpha exponent, and valid override values. |
 
 ## Filter Parameters
