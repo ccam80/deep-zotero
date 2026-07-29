@@ -274,6 +274,83 @@ class TestSearchPapersLexical:
         assert wired.search_papers(required_terms=["signal"], year_max=2000) == []
 
 
+class TestExactMatchFilters:
+    """sections and journal_quartiles exclude, and work without a query."""
+
+    @staticmethod
+    def _add(store: VectorStore, doc, section, quartile, text, year=1993):
+        store.add_chunks(
+            doc,
+            {"title": f"Paper {doc}", "authors": "Olufsen, M.", "year": year,
+             "journal_quartile": quartile, "publication": "J Physiol"},
+            [Chunk(text=text, page_num=1, chunk_index=0, char_start=0,
+                   char_end=len(text), section=section, section_confidence=1.0)],
+        )
+
+    @pytest.fixture
+    def corpus(self, store: VectorStore):
+        self._add(store, "Q1RES", "results", "Q1", "baroreflex gain rose")
+        self._add(store, "Q4RES", "results", "Q4", "baroreflex gain rose")
+        self._add(store, "Q1INT", "introduction", "Q1", "baroreflex gain rose")
+        self._add(store, "NORES", "results", "", "baroreflex gain rose")
+        return store
+
+    def test_sections_excludes_other_sections(self, corpus, wired):
+        results = wired.search_papers(required_terms=["baroreflex"], sections=["results"])
+        assert {r["doc_id"] for r in results} == {"Q1RES", "Q4RES", "NORES"}
+
+    def test_quartiles_excludes_other_quartiles(self, corpus, wired):
+        results = wired.search_papers(
+            required_terms=["baroreflex"], journal_quartiles=["Q1"]
+        )
+        assert {r["doc_id"] for r in results} == {"Q1RES", "Q1INT"}
+
+    def test_unknown_quartile_selects_unranked(self, corpus, wired):
+        results = wired.search_papers(
+            required_terms=["baroreflex"], journal_quartiles=["unknown"]
+        )
+        assert {r["doc_id"] for r in results} == {"NORES"}
+
+    def test_filters_combine(self, corpus, wired):
+        results = wired.search_papers(
+            required_terms=["baroreflex"],
+            sections=["results"],
+            journal_quartiles=["Q1"],
+        )
+        assert {r["doc_id"] for r in results} == {"Q1RES"}
+
+    def test_filters_apply_without_a_query(self, corpus, wired):
+        """Weights cannot filter here: the lexical path bypasses reranking."""
+        by_weight = wired.search_papers(
+            required_terms=["baroreflex"],
+            journal_weights={"Q2": 0.0, "Q3": 0.0, "Q4": 0.0, "unknown": 0.0},
+        )
+        assert "Q4RES" in {r["doc_id"] for r in by_weight}
+
+        by_filter = wired.search_papers(
+            required_terms=["baroreflex"], journal_quartiles=["Q1"]
+        )
+        assert "Q4RES" not in {r["doc_id"] for r in by_filter}
+
+    def test_filters_apply_with_a_query(self, corpus, wired):
+        results = wired.search_papers(
+            query="baroreflex gain", sections=["results"], journal_quartiles=["Q1"]
+        )
+        assert {r["doc_id"] for r in results} == {"Q1RES"}
+
+    def test_invalid_section_rejected(self, wired):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="Invalid sections"):
+            wired.search_papers(query="x", sections=["conclusions"])
+
+    def test_invalid_quartile_rejected(self, wired):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="Invalid journal_quartiles"):
+            wired.search_papers(query="x", journal_quartiles=["Q5"])
+
+
 class TestResultCarriesChunkType:
     """search_papers labels each result and adds table/figure fields."""
 

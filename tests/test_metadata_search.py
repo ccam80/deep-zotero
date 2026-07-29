@@ -9,11 +9,16 @@ from dataclasses import dataclass
 
 from deep_zotero.models import ZoteroItem, Chunk, StoredChunk
 from deep_zotero.vector_store import VectorStore
-from deep_zotero.server import _build_chromadb_filters, _apply_text_filters, _has_text_filters
+from deep_zotero.server import (
+    _build_chromadb_filters,
+    _apply_text_filters,
+    _has_text_filters,
+    _validate_filter_values,
+)
 
 
 class TestChromaDBFilterBuilder:
-    """Test _build_chromadb_filters function (year filters only)."""
+    """Test _build_chromadb_filters function (exact-match metadata filters)."""
 
     def test_no_filters_returns_none(self):
         """Empty filter set should return None."""
@@ -39,6 +44,68 @@ class TestChromaDBFilterBuilder:
                 {"year": {"$lte": 2023}},
             ]
         }
+
+    def test_single_section_uses_eq(self):
+        result = _build_chromadb_filters(sections=["results"])
+        assert result == {"section": {"$eq": "results"}}
+
+    def test_multiple_sections_use_in(self):
+        result = _build_chromadb_filters(sections=["results", "methods"])
+        assert result == {"section": {"$in": ["results", "methods"]}}
+
+    def test_single_quartile_uses_eq(self):
+        result = _build_chromadb_filters(journal_quartiles=["Q1"])
+        assert result == {"journal_quartile": {"$eq": "Q1"}}
+
+    def test_unknown_quartile_maps_to_empty_string(self):
+        """Unranked journals are stored as "", not "unknown"."""
+        result = _build_chromadb_filters(journal_quartiles=["unknown"])
+        assert result == {"journal_quartile": {"$eq": ""}}
+
+    def test_unknown_mapped_alongside_real_quartiles(self):
+        result = _build_chromadb_filters(journal_quartiles=["Q1", "unknown"])
+        assert result == {"journal_quartile": {"$in": ["Q1", ""]}}
+
+    def test_all_filters_combine(self):
+        result = _build_chromadb_filters(
+            year_min=1991, year_max=1995, chunk_types=["text"],
+            sections=["results"], journal_quartiles=["Q1"],
+        )
+        assert result == {
+            "$and": [
+                {"year": {"$gte": 1991}},
+                {"year": {"$lte": 1995}},
+                {"chunk_type": {"$eq": "text"}},
+                {"section": {"$eq": "results"}},
+                {"journal_quartile": {"$eq": "Q1"}},
+            ]
+        }
+
+
+class TestFilterValueValidation:
+    """Test _validate_filter_values rejects unknown names."""
+
+    def test_valid_values_accepted(self):
+        _validate_filter_values(["results", "methods"], ["Q1", "unknown"])
+
+    def test_none_accepted(self):
+        _validate_filter_values(None, None)
+
+    def test_unknown_section_rejected(self):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="Invalid sections"):
+            _validate_filter_values(["conclusions"], None)
+
+    def test_unknown_quartile_rejected(self):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="Invalid journal_quartiles"):
+            _validate_filter_values(None, ["Q5"])
+
+    def test_chunk_type_placeholders_are_valid_sections(self):
+        """Table and figure chunks carry these as their section value."""
+        _validate_filter_values(["table", "figure"], None)
 
 
 class TestTextFilterApplication:

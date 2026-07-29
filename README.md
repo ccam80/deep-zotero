@@ -190,11 +190,36 @@ Restart Claude Code. All 10 tools will be available.
 
 **`search_papers`** — Passage-level semantic search. Returns matching text with surrounding context, reranked by composite score (similarity × section weight × journal weight). Supports `required_terms` for combining semantic search with exact word matching — each term must appear as a whole word in the passage.
 
-Parameters: `query` (optional when `required_terms` is given), `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `section_weights`, `journal_weights`, `required_terms` (words that must appear as whole words), `terms_operator` (AND/OR).
+Parameters: `query` (optional when `required_terms` is given), `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `sections`, `journal_quartiles`, `section_weights`, `journal_weights`, `required_terms` (words that must appear as whole words), `terms_operator` (AND/OR).
 
 **`search_topic`** — Paper-level topic search, deduplicated by document. Groups chunks by paper, scores by average and best composite relevance.
 
-Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`, `section_weights`, `journal_weights`.
+Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`, `sections`, `journal_quartiles`, `section_weights`, `journal_weights`.
+
+### Filtering
+
+Filters exclude; weights only reorder. `sections` and `journal_quartiles` are
+exact-match filters applied during retrieval, so they work with or without a
+`query`:
+
+```python
+search_papers(query="baroreflex sensitivity", author="Olufsen", journal_quartiles=["Q1"])
+search_papers(required_terms=["SDNN"], sections=["results"], year_min=1991, year_max=1995)
+```
+
+Valid `sections`: `abstract`, `introduction`, `background`, `methods`,
+`results`, `discussion`, `conclusion`, `references`, `appendix`, `preamble`,
+`table`, `figure`, `unknown`. Valid `journal_quartiles`: `Q1`–`Q4` and
+`unknown`, the last selecting papers whose journal has no quartile — most of
+them, so a quartile filter discards a large share of the index.
+
+`year_min`, `year_max`, `chunk_types`, `sections` and `journal_quartiles` are
+ChromaDB filters. `author`, `tag` and `collection` are case-insensitive
+substring matches applied after retrieval, so they narrow the result set rather
+than the search.
+
+`section_weights` and `journal_weights` express preference, not exclusion, and
+apply only when reranking runs — that is, only with a `query`.
 
 ### Tables and figures
 

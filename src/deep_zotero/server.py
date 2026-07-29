@@ -159,12 +159,21 @@ def _stored_chunk_to_retrieval_result(chunk) -> RetrievalResult:
 VALID_CHUNK_TYPES = {"text", "figure", "table"}
 
 
+def _match_any(field: str, values: list[str]) -> dict:
+    """ChromaDB equality clause for one or several accepted values."""
+    if len(values) == 1:
+        return {field: {"$eq": values[0]}}
+    return {field: {"$in": values}}
+
+
 def _build_chromadb_filters(
     year_min: int | None = None,
     year_max: int | None = None,
     chunk_types: list[str] | None = None,
+    sections: list[str] | None = None,
+    journal_quartiles: list[str] | None = None,
 ) -> dict | None:
-    """Build ChromaDB where clause for year range and chunk_type filters.
+    """Build ChromaDB where clause for exact-match metadata filters.
 
     IMPORTANT: ChromaDB only supports: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
     It does NOT support substring/contains operations on metadata.
@@ -174,6 +183,9 @@ def _build_chromadb_filters(
         year_min: Minimum publication year
         year_max: Maximum publication year
         chunk_types: Filter to specific chunk types (text, figure, table)
+        sections: Filter to specific document sections
+        journal_quartiles: Filter to specific quartiles; "unknown" selects
+            documents whose journal has no quartile
 
     Returns:
         ChromaDB where clause dict, or None if no filters
@@ -184,16 +196,42 @@ def _build_chromadb_filters(
     if year_max:
         conditions.append({"year": {"$lte": year_max}})
     if chunk_types:
-        if len(chunk_types) == 1:
-            conditions.append({"chunk_type": {"$eq": chunk_types[0]}})
-        else:
-            conditions.append({"chunk_type": {"$in": chunk_types}})
+        conditions.append(_match_any("chunk_type", chunk_types))
+    if sections:
+        conditions.append(_match_any("section", sections))
+    if journal_quartiles:
+        # unranked journals are stored as an empty string, not "unknown"
+        conditions.append(_match_any(
+            "journal_quartile",
+            ["" if q == "unknown" else q for q in journal_quartiles],
+        ))
 
     if not conditions:
         return None
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def _validate_filter_values(
+    sections: list[str] | None,
+    journal_quartiles: list[str] | None,
+) -> None:
+    """Reject unknown section or quartile names."""
+    if sections:
+        invalid = set(sections) - VALID_SECTIONS
+        if invalid:
+            raise ToolError(
+                f"Invalid sections: {sorted(invalid)}. "
+                f"Valid values: {', '.join(sorted(VALID_SECTIONS))}"
+            )
+    if journal_quartiles:
+        invalid = set(journal_quartiles) - VALID_QUARTILES
+        if invalid:
+            raise ToolError(
+                f"Invalid journal_quartiles: {sorted(invalid)}. "
+                f"Valid values: {', '.join(sorted(VALID_QUARTILES))}"
+            )
 
 
 def _meta_get(r, key: str, default: str = "") -> str:
@@ -323,6 +361,8 @@ def search_papers(
     tag: str | None = None,
     collection: str | None = None,
     chunk_types: list[str] | None = None,
+    sections: list[str] | None = None,
+    journal_quartiles: list[str] | None = None,
     section_weights: dict[str, float] | None = None,
     journal_weights: dict[str, float] | None = None,
     required_terms: list[str] | None = None,
@@ -362,14 +402,21 @@ def search_papers(
         chunk_types: Filter by content type. Valid values: text, figure,
             table. Pass a list to include multiple (e.g. ["text", "table"]).
             Omit or pass null to search all types.
+        sections: Restrict to these document sections, e.g. ["results"].
+            Excludes everything else, unlike section_weights.
+        journal_quartiles: Restrict to these journal quartiles, e.g. ["Q1"].
+            "unknown" selects papers whose journal has no quartile. Most
+            papers are unranked, so this discards a large share of the index.
         section_weights: Override section relevance weights. Keys are section
             labels: abstract, introduction, background, methods, results,
             discussion, conclusion, references, appendix, preamble, table,
-            unknown. Values are 0.0-1.0. Set a section to 0 to exclude it.
-            Ranking only, so ignored when query is omitted.
+            figure, unknown. Values are 0.0-1.0. Prefers rather than
+            excludes; use sections to exclude. Ranking only, so ignored when
+            query is omitted.
         journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0. Ranking only, so ignored
-            when query is omitted.
+            Q3, Q4, unknown. Values are 0.0-1.0. Prefers rather than
+            excludes; use journal_quartiles to exclude. Ranking only, so
+            ignored when query is omitted.
         required_terms: Words that must appear in the passage text as whole
             words (case-insensitive). Applied inside the search, so matches
             are not limited to what semantic ranking surfaced.
@@ -398,6 +445,8 @@ def search_papers(
                 f"Valid values: {', '.join(sorted(VALID_CHUNK_TYPES))}"
             )
 
+    _validate_filter_values(sections, journal_quartiles)
+
     # Validate section_weights if provided
     if section_weights is not None:
         errors = validate_section_weights(section_weights)
@@ -413,7 +462,9 @@ def search_papers(
     retriever = _get_retriever()
     reranker = _get_reranker()
 
-    filters = _build_chromadb_filters(year_min, year_max, chunk_types)
+    filters = _build_chromadb_filters(
+        year_min, year_max, chunk_types, sections, journal_quartiles
+    )
     where_document = (
         VectorStore.build_word_filter(required_terms, terms_operator)
         if required_terms
@@ -470,6 +521,8 @@ def search_topic(
     tag: str | None = None,
     collection: str | None = None,
     chunk_types: list[str] | None = None,
+    sections: list[str] | None = None,
+    journal_quartiles: list[str] | None = None,
     section_weights: dict[str, float] | None = None,
     journal_weights: dict[str, float] | None = None,
 ) -> list[dict]:
@@ -496,12 +549,19 @@ def search_topic(
         chunk_types: Filter by content type. Valid values: text, figure,
             table. Pass a list to include multiple (e.g. ["text", "figure"]).
             Omit or pass null to search all types.
+        sections: Restrict to these document sections, e.g. ["results"].
+            Excludes everything else, unlike section_weights.
+        journal_quartiles: Restrict to these journal quartiles, e.g. ["Q1"].
+            "unknown" selects papers whose journal has no quartile. Most
+            papers are unranked, so this discards a large share of the index.
         section_weights: Override section relevance weights. Keys are section
             labels: abstract, introduction, background, methods, results,
             discussion, conclusion, references, appendix, preamble, table,
-            unknown. Values are 0.0-1.0. Set a section to 0 to exclude it.
+            figure, unknown. Values are 0.0-1.0. Prefers rather than excludes;
+            use sections to exclude.
         journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0.
+            Q3, Q4, unknown. Values are 0.0-1.0. Prefers rather than excludes;
+            use journal_quartiles to exclude.
 
     Returns:
         List of per-paper results with scores and best passage
@@ -516,6 +576,8 @@ def search_topic(
                 f"Invalid chunk_types: {invalid}. "
                 f"Valid values: {', '.join(sorted(VALID_CHUNK_TYPES))}"
             )
+
+    _validate_filter_values(sections, journal_quartiles)
 
     # Validate section_weights if provided
     if section_weights is not None:
@@ -543,7 +605,9 @@ def search_topic(
         query=query,
         top_k=fetch_k,
         context_window=1,
-        filters=_build_chromadb_filters(year_min, year_max, chunk_types)
+        filters=_build_chromadb_filters(
+            year_min, year_max, chunk_types, sections, journal_quartiles
+        )
     )
     results = _apply_text_filters(results, author, tag, collection)
 
