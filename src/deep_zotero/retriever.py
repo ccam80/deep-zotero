@@ -20,7 +20,8 @@ class Retriever:
         query: str,
         top_k: int = 10,
         context_window: int = 1,
-        filters: dict | None = None
+        filters: dict | None = None,
+        where_document: dict | None = None,
     ) -> list[RetrievalResult]:
         """
         Search for relevant chunks and expand context.
@@ -30,12 +31,29 @@ class Retriever:
             top_k: Number of results
             context_window: Chunks before/after to include (0-5)
             filters: Optional metadata filters
+            where_document: Optional document-text constraint, applied inside
+                the similarity query rather than to its results
 
         Returns:
             List of RetrievalResult with expanded context
         """
-        hits = self.store.search(query, top_k=top_k, filters=filters)
+        return self.expand(
+            self.store.search(
+                query, top_k=top_k, filters=filters, where_document=where_document
+            ),
+            context_window=context_window,
+        )
 
+    def expand(
+        self,
+        hits: list[StoredChunk],
+        context_window: int = 1,
+    ) -> list[RetrievalResult]:
+        """Turn raw chunk hits into results with surrounding context.
+
+        Shared by semantic search and by lexical retrieval, which produces
+        hits without a similarity score.
+        """
         results = []
         for hit in hits:
             # Get adjacent chunks

@@ -257,24 +257,6 @@ def _has_text_filters(author: str | None, tag: str | None, collection: str | Non
     return bool(author or tag or collection)
 
 
-def _apply_required_terms(results: list, terms: list[str]) -> list:
-    """Filter results to only those containing all required terms as whole words.
-
-    Case-insensitive. Checks the passage text (and full_context if available).
-    """
-    import re
-    patterns = [re.compile(r'\b' + re.escape(t) + r'\b', re.IGNORECASE) for t in terms]
-
-    filtered = []
-    for r in results:
-        text = getattr(r, 'text', '') or ''
-        full_ctx = r.full_context() if hasattr(r, 'full_context') and callable(getattr(r, 'full_context', None)) else ''
-        combined = text + ' ' + full_ctx
-        if all(p.search(combined) for p in patterns):
-            filtered.append(r)
-    return filtered
-
-
 def _result_to_dict(r) -> dict:
     """Convert RetrievalResult to API response dict.
 
@@ -303,7 +285,7 @@ def _result_to_dict(r) -> dict:
 
 @mcp.tool()
 def search_papers(
-    query: str,
+    query: str | None = None,
     top_k: int = 10,
     context_chunks: int = 1,
     year_min: int | None = None,
@@ -315,26 +297,32 @@ def search_papers(
     section_weights: dict[str, float] | None = None,
     journal_weights: dict[str, float] | None = None,
     required_terms: list[str] | None = None,
+    terms_operator: str = "AND",
 ) -> list[dict]:
     """
-    Semantic search over research paper chunks.
+    Search research paper chunks semantically, lexically, or both.
 
     Returns relevant passages with surrounding context.
 
-    Results are reranked by a composite score combining semantic similarity,
-    document section, and journal quartile. chunk_types and section_weights
-    are orthogonal dimensions — use chunk_types to select what kind of
-    content (text, figures, tables) and section_weights to prefer where
-    in the paper it appears.
+    Pass `query` for semantic search: results are reranked by a composite
+    score combining semantic similarity, document section, and journal
+    quartile. chunk_types and section_weights are orthogonal dimensions —
+    use chunk_types to select what kind of content (text, figures, tables)
+    and section_weights to prefer where in the paper it appears.
 
-    Combine semantic search with exact word matching by passing
-    required_terms. Each term must appear as a whole word (case-insensitive)
-    in the passage text for the result to be included. This is useful for
-    ensuring results contain specific acronyms, identifiers, or keywords
-    that semantic search alone might miss.
+    Pass `required_terms` for exact whole-word matching (case-insensitive).
+    Terms constrain the search itself rather than filtering its output, so a
+    passage containing a rare acronym, gene symbol or model number is found
+    even when semantic similarity would never have surfaced it. Use
+    terms_operator to require all of them or any of them.
+
+    Pass `required_terms` WITHOUT a query to retrieve every matching passage
+    in the index, unranked — the exhaustive lexical lookup. At least one of
+    query or required_terms is required.
 
     Args:
-        query: Natural language search query
+        query: Natural language search query. Omit for a pure lexical lookup
+            driven by required_terms alone.
         top_k: Number of results (1-50)
         context_chunks: Adjacent chunks to include (0-3)
         year_min: Minimum publication year filter
@@ -349,16 +337,28 @@ def search_papers(
             labels: abstract, introduction, background, methods, results,
             discussion, conclusion, references, appendix, preamble, table,
             unknown. Values are 0.0-1.0. Set a section to 0 to exclude it.
+            Ranking only, so ignored when query is omitted.
         journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0.
-        required_terms: List of words that must appear in the passage text
-            (case-insensitive whole-word match). All terms must be present.
-            Use this to combine semantic search with exact keyword filtering.
+            Q3, Q4, unknown. Values are 0.0-1.0. Ranking only, so ignored
+            when query is omitted.
+        required_terms: Words that must appear in the passage text as whole
+            words (case-insensitive). Applied inside the search, so matches
+            are not limited to what semantic ranking surfaced.
+        terms_operator: "AND" (every term required) or "OR" (any term).
+            Ignored when required_terms is omitted.
 
     Returns:
         List of results with passage text, context, and metadata
     """
     start = time.perf_counter()
+
+    if not query and not required_terms:
+        raise ToolError("Provide query, required_terms, or both.")
+
+    if terms_operator.upper() not in ("AND", "OR"):
+        raise ToolError(
+            f"Invalid terms_operator: {terms_operator}. Must be 'AND' or 'OR'."
+        )
 
     # Validate chunk_types if provided
     if chunk_types is not None:
@@ -384,23 +384,40 @@ def search_papers(
     retriever = _get_retriever()
     reranker = _get_reranker()
 
-    # Oversample for reranking; increase if post-retrieval filters will reduce results
-    base_fetch = min(top_k * _config.oversample_multiplier, 150)
-    has_post_filters = _has_text_filters(author, tag, collection) or required_terms
-    fetch_k = base_fetch * 3 if has_post_filters else base_fetch
-
-    results = retriever.search(
-        query=query,
-        top_k=fetch_k,
-        context_window=min(context_chunks, 3),
-        filters=_build_chromadb_filters(year_min, year_max, chunk_types)
+    filters = _build_chromadb_filters(year_min, year_max, chunk_types)
+    where_document = (
+        VectorStore.build_word_filter(required_terms, terms_operator)
+        if required_terms
+        else None
     )
-    results = _apply_text_filters(results, author, tag, collection)
-    if required_terms:
-        results = _apply_required_terms(results, required_terms)
 
-    # Rerank (or bypass if disabled)
-    if _config.rerank_enabled:
+    if query:
+        # Oversample for reranking; author/tag/collection still post-filter
+        base_fetch = min(top_k * _config.oversample_multiplier, 150)
+        fetch_k = (
+            base_fetch * 3
+            if _has_text_filters(author, tag, collection)
+            else base_fetch
+        )
+        results = retriever.search(
+            query=query,
+            top_k=fetch_k,
+            context_window=min(context_chunks, 3),
+            filters=filters,
+            where_document=where_document,
+        )
+    else:
+        # No query: exhaustive lexical retrieval, no embedding call
+        results = retriever.expand(
+            _get_store().match_chunks(required_terms, terms_operator, where=filters),
+            context_window=min(context_chunks, 3),
+        )
+
+    results = _apply_text_filters(results, author, tag, collection)
+
+    # Rerank (or bypass if disabled, or if there is no similarity to rank by:
+    # lexical hits carry no score, and the reranker drops zero-scored results)
+    if query and _config.rerank_enabled:
         reranked = reranker.rerank(results, section_weights, journal_weights)
         top_results = reranked[:min(top_k, 50)]
     else:
@@ -1039,111 +1056,6 @@ def get_reranking_config() -> dict:
         "valid_quartiles": sorted(VALID_QUARTILES),
         "oversample_multiplier": _config.oversample_multiplier,
     }
-
-
-# =============================================================================
-# Boolean Full-Text Search (Feature 3)
-# =============================================================================
-
-
-@mcp.tool()
-def search_boolean(
-    query: str,
-    operator: str = "AND",
-    year_min: int | None = None,
-    year_max: int | None = None,
-    author: str | None = None,
-    tag: str | None = None,
-    collection: str | None = None,
-    chunk_types: list[str] | None = None,
-) -> list[dict]:
-    """
-    Boolean word search over the indexed text.
-
-    Use for exact word matching with AND/OR logic. Unlike semantic search,
-    this matches the words you give it and nothing else - no synonyms, no
-    related meaning.
-
-    Matching is case-insensitive and whole-word: "heart" matches "Heart" but
-    not "hearth". Terms are split on whitespace, so a hyphenated term is
-    matched as written.
-
-    Searches the same indexed chunks as search_papers, so every result can be
-    followed up there, and matched_pages points at where the words appear.
-
-    Limitations:
-    - No phrase search ("heart rate" requires both words, in any position)
-    - No stemming ("running" won't match "run")
-    - Covers indexed documents only; run index_library for anything missing
-
-    Args:
-        query: Space-separated search terms (case-insensitive)
-        operator: "AND" (all terms required) or "OR" (any term matches)
-        year_min: Minimum publication year filter
-        year_max: Maximum publication year filter
-        author: Author name substring (case-insensitive)
-        tag: Zotero tag substring (case-insensitive)
-        collection: Zotero collection substring (case-insensitive)
-        chunk_types: Restrict to chunk types: "text", "table", "figure"
-
-    Returns:
-        List of matching papers, most matches first, each with metadata plus
-        match_count and matched_pages. Use search_papers or
-        get_passage_context for the passage text itself.
-    """
-    words = [w.strip() for w in query.split() if w.strip()]
-    if not words:
-        return []
-
-    if chunk_types:
-        invalid = set(chunk_types) - VALID_CHUNK_TYPES
-        if invalid:
-            raise ToolError(
-                f"Invalid chunk_types: {sorted(invalid)}. "
-                f"Valid values: {sorted(VALID_CHUNK_TYPES)}"
-            )
-
-    if operator.upper() not in ("AND", "OR"):
-        raise ToolError(f"Invalid operator: {operator}. Must be 'AND' or 'OR'.")
-
-    where = _build_chromadb_filters(year_min, year_max, chunk_types)
-    chunks = _get_store().match_chunks(words, operator, where=where)
-    chunks = _apply_text_filters(chunks, author, tag, collection)
-
-    # Collapse chunk hits to one entry per document
-    by_doc: dict[str, dict] = {}
-    for c in chunks:
-        meta = c.metadata
-        doc_id = meta.get("doc_id", "")
-        if not doc_id:
-            continue
-        entry = by_doc.get(doc_id)
-        if entry is None:
-            entry = by_doc[doc_id] = {
-                "item_key": doc_id,
-                "title": meta.get("doc_title", ""),
-                "authors": meta.get("authors", ""),
-                "year": meta.get("year"),
-                "publication": meta.get("publication", ""),
-                "citation_key": meta.get("citation_key", ""),
-                "tags": meta.get("tags", ""),
-                "collections": meta.get("collections", ""),
-                "doi": meta.get("doi", ""),
-                "match_count": 0,
-                "matched_pages": set(),
-            }
-        entry["match_count"] += 1
-        page = meta.get("page_num")
-        if page is not None:
-            entry["matched_pages"].add(page)
-
-    results = list(by_doc.values())
-    for r in results:
-        r["matched_pages"] = sorted(r["matched_pages"])
-
-    # Most matches first, then most recent
-    results.sort(key=lambda x: (x["match_count"], x.get("year") or 0), reverse=True)
-    return results
 
 
 # =============================================================================

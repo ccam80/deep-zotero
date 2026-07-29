@@ -279,7 +279,8 @@ class VectorStore:
         self,
         query: str,
         top_k: int = 10,
-        filters: dict | None = None
+        filters: dict | None = None,
+        where_document: dict | None = None,
     ) -> list[StoredChunk]:
         """
         Search for similar chunks.
@@ -288,6 +289,9 @@ class VectorStore:
             query: Search query text
             top_k: Number of results to return
             filters: Optional ChromaDB where clause
+            where_document: Optional ChromaDB where_document clause. Applied
+                inside the similarity query, so it constrains what is searched
+                rather than filtering what was already returned.
 
         Returns:
             List of StoredChunk objects sorted by similarity
@@ -299,6 +303,7 @@ class VectorStore:
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=filters,
+            where_document=where_document or None,
             include=["documents", "metadatas", "distances"]
         )
 

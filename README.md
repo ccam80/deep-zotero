@@ -1,6 +1,6 @@
 # DeepZotero
 
-Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 13 tools for semantic search, boolean search, table/figure search, context expansion, citation graph lookup, indexing, and cost tracking.
+Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 12 tools for semantic and exact-word search, table/figure search, context expansion, citation graph lookup, indexing, and cost tracking.
 
 ## What it extracts
 
@@ -119,7 +119,7 @@ On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python
 
 If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
-Restart Claude Code. All 13 tools will be available.
+Restart Claude Code. All 12 tools will be available.
 
 ---
 
@@ -190,7 +190,7 @@ Restart Claude Code. All 13 tools will be available.
 
 **`search_papers`** — Passage-level semantic search. Returns matching text with surrounding context, reranked by composite score (similarity × section weight × journal weight). Supports `required_terms` for combining semantic search with exact word matching — each term must appear as a whole word in the passage.
 
-Parameters: `query`, `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `section_weights`, `journal_weights`, `required_terms` (list of words that must appear in passage).
+Parameters: `query` (optional when `required_terms` is given), `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `section_weights`, `journal_weights`, `required_terms` (words that must appear as whole words), `terms_operator` (AND/OR).
 
 **`search_topic`** — Paper-level topic search, deduplicated by document. Groups chunks by paper, scores by average and best composite relevance.
 
@@ -204,13 +204,31 @@ Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `c
 
 Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `collection`.
 
-### Boolean search
+### Exact word matching
 
-**`search_boolean`** — Exact word matching over the indexed chunk text. Matching is case-insensitive and whole-word (`heart` matches `Heart`, not `hearth`). Returns papers with `match_count` and `matched_pages`, most matches first; use `search_papers` or `get_passage_context` for the passage itself. No phrase search, no stemming.
+There is no separate boolean tool. `search_papers` takes `required_terms`, a list
+of words that must appear in the passage as whole words, case-insensitively —
+`heart` matches `Heart` but not `hearth`. Set `terms_operator` to `AND` (default)
+or `OR`.
 
-Searches the same chunks as `search_papers`, so every result can be followed up there. Documents that have not been indexed are not searchable — run `deep-zotero-index` for anything missing.
+Terms constrain the search rather than filtering its output, so a passage
+containing a rare acronym, gene symbol or model number is found even when
+semantic similarity would never have surfaced it:
 
-Parameters: `query` (space-separated terms), `operator` (AND/OR), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`.
+```python
+search_papers("autonomic regulation", required_terms=["SDNN"])
+```
+
+Omit `query` to retrieve every matching passage in the index, unranked, with no
+embedding call — the exhaustive lexical lookup:
+
+```python
+search_papers(required_terms=["propranolol", "SDNN"], terms_operator="AND")
+```
+
+At least one of `query` or `required_terms` is required. `section_weights` and
+`journal_weights` affect ranking only, so they are ignored when `query` is
+omitted. No phrase search, no stemming.
 
 ### Context expansion
 

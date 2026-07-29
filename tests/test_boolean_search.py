@@ -27,6 +27,9 @@ def _embedder(dimensions: int = 768) -> MagicMock:
     mock.embed = MagicMock(
         side_effect=lambda texts, **kwargs: [[0.1] * dimensions for _ in texts]
     )
+    mock.embed_query = MagicMock(
+        side_effect=lambda text, **kwargs: [0.1] * dimensions
+    )
     return mock
 
 
@@ -207,3 +210,65 @@ class TestFiltersAndEdgeCases:
         assert len(hits) == 1
         assert "Electrode" in hits[0].text
         assert hits[0].metadata["page_num"] == 1
+
+
+@pytest.fixture
+def wired(store: VectorStore, mock_config, monkeypatch):
+    """search_papers wired to the fixture store, bypassing lazy init."""
+    from deep_zotero import server as srv
+    from deep_zotero.reranker import Reranker
+    from deep_zotero.retriever import Retriever
+
+    monkeypatch.setattr(srv, "_config", mock_config)
+    monkeypatch.setattr(srv, "_store", store)
+    monkeypatch.setattr(srv, "_retriever", Retriever(store))
+    monkeypatch.setattr(srv, "_reranker", Reranker(alpha=mock_config.rerank_alpha))
+    return srv
+
+
+class TestSearchPapersLexical:
+    """required_terms replaced the standalone boolean tool."""
+
+    def test_requires_query_or_terms(self, wired):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="query, required_terms"):
+            wired.search_papers()
+
+    def test_rejects_bad_operator(self, wired):
+        from deep_zotero.server import ToolError
+
+        with pytest.raises(ToolError, match="terms_operator"):
+            wired.search_papers(required_terms=["heart"], terms_operator="XOR")
+
+    def test_terms_only_needs_no_embedding(self, wired, store: VectorStore):
+        results = wired.search_papers(required_terms=["heart"])
+        assert {r["doc_id"] for r in results} == {"HEART001"}
+        store.embedder.embed_query.assert_not_called()
+
+    def test_terms_only_is_whole_word(self, wired):
+        results = wired.search_papers(required_terms=["heart"])
+        assert len(results) == 1
+        assert "Heart rate" in results[0]["passage"]
+
+    def test_terms_operator_or(self, wired):
+        results = wired.search_papers(
+            required_terms=["heart", "electrode"], terms_operator="OR"
+        )
+        assert {r["doc_id"] for r in results} == {"HEART001", "ELEC002"}
+
+    def test_terms_operator_and_excludes(self, wired):
+        assert wired.search_papers(
+            required_terms=["heart", "electrode"], terms_operator="AND"
+        ) == []
+
+    def test_query_with_terms_constrains_the_search(self, wired, store: VectorStore):
+        """The term is a hard constraint, not a filter on what ranked well."""
+        results = wired.search_papers(query="cardiac autonomic control",
+                                      required_terms=["electrode"])
+        assert {r["doc_id"] for r in results} == {"ELEC002"}
+        store.embedder.embed_query.assert_called()
+
+    def test_terms_respect_metadata_filters(self, wired):
+        assert wired.search_papers(required_terms=["signal"], year_min=2020) != []
+        assert wired.search_papers(required_terms=["signal"], year_max=2000) == []
