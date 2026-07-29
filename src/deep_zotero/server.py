@@ -173,22 +173,11 @@ def _build_chromadb_filters(
     sections: list[str] | None = None,
     journal_quartiles: list[str] | None = None,
 ) -> dict | None:
-    """Build ChromaDB where clause for exact-match metadata filters.
+    """Build a ChromaDB where clause, or None if no filters are set.
 
-    IMPORTANT: ChromaDB only supports: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
-    It does NOT support substring/contains operations on metadata.
-    Text-based filters (author, tag, collection) must use _apply_text_filters().
-
-    Args:
-        year_min: Minimum publication year
-        year_max: Maximum publication year
-        chunk_types: Filter to specific chunk types (text, figure, table)
-        sections: Filter to specific document sections
-        journal_quartiles: Filter to specific quartiles; "unknown" selects
-            documents whose journal has no quartile
-
-    Returns:
-        ChromaDB where clause dict, or None if no filters
+    Substring filters (author, tag, collection) are unsupported here and use
+    _apply_text_filters. "unknown" in journal_quartiles matches the empty
+    string stored for an unranked journal.
     """
     conditions = []
     if year_min:
@@ -403,20 +392,17 @@ def search_papers(
             table. Pass a list to include multiple (e.g. ["text", "table"]).
             Omit or pass null to search all types.
         sections: Restrict to these document sections, e.g. ["results"].
-            Excludes everything else, unlike section_weights.
+            Excludes all others.
         journal_quartiles: Restrict to these journal quartiles, e.g. ["Q1"].
-            "unknown" selects papers whose journal has no quartile. Most
-            papers are unranked, so this discards a large share of the index.
+            "unknown" selects papers whose journal has no quartile.
         section_weights: Override section relevance weights. Keys are section
             labels: abstract, introduction, background, methods, results,
             discussion, conclusion, references, appendix, preamble, table,
-            figure, unknown. Values are 0.0-1.0. Prefers rather than
-            excludes; use sections to exclude. Ranking only, so ignored when
-            query is omitted.
+            figure, unknown. Values are 0.0-1.0. Reorders results; ignored
+            when query is omitted.
         journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0. Prefers rather than
-            excludes; use journal_quartiles to exclude. Ranking only, so
-            ignored when query is omitted.
+            Q3, Q4, unknown. Values are 0.0-1.0. Reorders results; ignored
+            when query is omitted.
         required_terms: Words that must appear in the passage text as whole
             words (case-insensitive). Applied inside the search, so matches
             are not limited to what semantic ranking surfaced.
@@ -550,18 +536,15 @@ def search_topic(
             table. Pass a list to include multiple (e.g. ["text", "figure"]).
             Omit or pass null to search all types.
         sections: Restrict to these document sections, e.g. ["results"].
-            Excludes everything else, unlike section_weights.
+            Excludes all others.
         journal_quartiles: Restrict to these journal quartiles, e.g. ["Q1"].
-            "unknown" selects papers whose journal has no quartile. Most
-            papers are unranked, so this discards a large share of the index.
+            "unknown" selects papers whose journal has no quartile.
         section_weights: Override section relevance weights. Keys are section
             labels: abstract, introduction, background, methods, results,
             discussion, conclusion, references, appendix, preamble, table,
-            figure, unknown. Values are 0.0-1.0. Prefers rather than excludes;
-            use sections to exclude.
+            figure, unknown. Values are 0.0-1.0. Reorders results.
         journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0. Prefers rather than excludes;
-            use journal_quartiles to exclude.
+            Q3, Q4, unknown. Values are 0.0-1.0. Reorders results.
 
     Returns:
         List of per-paper results with scores and best passage

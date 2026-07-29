@@ -198,28 +198,23 @@ Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag
 
 ### Filtering
 
-Filters exclude; weights only reorder. `sections` and `journal_quartiles` are
-exact-match filters applied during retrieval, so they work with or without a
-`query`:
-
 ```python
 search_papers(query="baroreflex sensitivity", author="Olufsen", journal_quartiles=["Q1"])
 search_papers(required_terms=["SDNN"], sections=["results"], year_min=1991, year_max=1995)
 ```
 
+| Parameter | Applied | Match |
+|---|---|---|
+| `year_min`, `year_max`, `chunk_types`, `sections`, `journal_quartiles` | during retrieval | exact |
+| `author`, `tag`, `collection` | after retrieval | case-insensitive substring |
+| `section_weights`, `journal_weights` | during reranking, so only with `query` | reorders, excludes nothing |
+
 Valid `sections`: `abstract`, `introduction`, `background`, `methods`,
 `results`, `discussion`, `conclusion`, `references`, `appendix`, `preamble`,
-`table`, `figure`, `unknown`. Valid `journal_quartiles`: `Q1`–`Q4` and
-`unknown`, the last selecting papers whose journal has no quartile — most of
-them, so a quartile filter discards a large share of the index.
+`table`, `figure`, `unknown`.
 
-`year_min`, `year_max`, `chunk_types`, `sections` and `journal_quartiles` are
-ChromaDB filters. `author`, `tag` and `collection` are case-insensitive
-substring matches applied after retrieval, so they narrow the result set rather
-than the search.
-
-`section_weights` and `journal_weights` express preference, not exclusion, and
-apply only when reranking runs — that is, only with a `query`.
+Valid `journal_quartiles`: `Q1`–`Q4`, and `unknown` for papers whose journal has
+no quartile. Most papers are unranked, so a quartile filter returns few results.
 
 ### Tables and figures
 
