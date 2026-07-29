@@ -12,10 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 # Default section weights (can be overridden per-query)
+#
+# "table" and "figure" are not sections. Indexing overwrites the real section
+# of a table or figure chunk with a placeholder naming its type, so the
+# section it actually appeared in is not recorded. Both weigh 1.0 because a
+# placeholder carries no evidence about relevance and must not act as a
+# penalty -- "figure" previously had no entry at all and fell through to the
+# 0.7 default, ranking every figure below unclassified body text and, since
+# it was absent from VALID_SECTIONS, giving callers no way to correct it.
 DEFAULT_SECTION_WEIGHTS: dict[str, float] = {
     "results": 1.0,
     "conclusion": 1.0,
-    "table": 0.9,  # Tables are high-value structured content
+    "table": 1.0,
+    "figure": 1.0,
     "methods": 0.85,
     "abstract": 0.75,
     "background": 0.7,

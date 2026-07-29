@@ -1,6 +1,6 @@
 # DeepZotero
 
-Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 12 tools for semantic and exact-word search, table/figure search, context expansion, citation graph lookup, indexing, and cost tracking.
+Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 10 tools for semantic and exact-word search over text, tables and figures, context expansion, citation graph lookup, indexing, and cost tracking.
 
 ## What it extracts
 
@@ -119,7 +119,7 @@ On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python
 
 If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
-Restart Claude Code. All 12 tools will be available.
+Restart Claude Code. All 10 tools will be available.
 
 ---
 
@@ -196,13 +196,25 @@ Parameters: `query` (optional when `required_terms` is given), `top_k` (1-50), `
 
 Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`, `section_weights`, `journal_weights`.
 
-**`search_tables`** — Semantic search over table content (headers, cells, captions). Returns tables as markdown.
+### Tables and figures
 
-Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `collection`, `journal_weights`.
+There are no separate table or figure tools. `search_papers` covers all three
+chunk types by default, and every result names its `chunk_type`. Narrow with
+`chunk_types` when you want only one:
 
-**`search_figures`** — Semantic search over figure captions. Returns figure metadata and paths to extracted PNGs.
+```python
+search_papers("impedance measurement", chunk_types=["table"])
+```
 
-Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `collection`.
+Table results add `table_index`, `caption`, `num_rows` and `num_cols`, with the
+table markdown in `passage`. Figure results add `figure_index`, `caption` and
+`image_path` — the path to the extracted PNG — with the caption in `passage`.
+
+`table` and `figure` are also the *section* labels these chunks carry: indexing
+overwrites the real section with a placeholder naming the chunk type, so the
+section a table appeared in is not recorded. Both weigh 1.0 in reranking,
+because a placeholder is not evidence about relevance and should not act as a
+penalty.
 
 ### Exact word matching
 

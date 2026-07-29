@@ -272,3 +272,61 @@ class TestSearchPapersLexical:
     def test_terms_respect_metadata_filters(self, wired):
         assert wired.search_papers(required_terms=["signal"], year_min=2020) != []
         assert wired.search_papers(required_terms=["signal"], year_max=2000) == []
+
+
+class TestResultCarriesChunkType:
+    """search_tables and search_figures were deleted, so search_papers must
+    return everything they used to expose."""
+
+    def test_text_result_is_labelled(self, wired):
+        results = wired.search_papers(required_terms=["heart"])
+        assert results[0]["chunk_type"] == "text"
+
+    def test_text_result_has_no_table_or_figure_fields(self, wired):
+        r = wired.search_papers(required_terms=["heart"])[0]
+        assert "image_path" not in r and "num_rows" not in r
+
+    def test_figure_result_carries_image_path(self, store: VectorStore, wired):
+        store.collection.add(
+            ids=["FIG003_fig_0000"],
+            embeddings=[[0.1] * 768],
+            documents=["Figure 1. Electrode placement on the torso."],
+            metadatas=[{
+                "doc_id": "FIG003", "doc_title": "Placement", "authors": "Wu, K.",
+                "year": 2019, "page_num": 3, "chunk_index": 0,
+                "chunk_type": "figure", "section": "figure",
+                "caption": "Figure 1. Electrode placement on the torso.",
+                "image_path": "/figs/FIG003_p3_0.png", "figure_index": 0,
+            }],
+        )
+        r = next(
+            x for x in wired.search_papers(required_terms=["torso"])
+            if x["doc_id"] == "FIG003"
+        )
+        assert r["chunk_type"] == "figure"
+        assert r["image_path"] == "/figs/FIG003_p3_0.png"
+        assert r["caption"].startswith("Figure 1.")
+        assert r["figure_index"] == 0
+
+    def test_table_result_carries_dimensions(self, store: VectorStore, wired):
+        store.collection.add(
+            ids=["TAB004_table_0000"],
+            embeddings=[[0.1] * 768],
+            documents=["| subject | impedance |\n|---|---|\n| A | 4.2 |"],
+            metadatas=[{
+                "doc_id": "TAB004", "doc_title": "Impedance", "authors": "Wu, K.",
+                "year": 2019, "page_num": 5, "chunk_index": 0,
+                "chunk_type": "table", "section": "table",
+                "table_caption": "Table 2. Impedance by subject.",
+                "table_index": 1, "table_num_rows": 1, "table_num_cols": 2,
+            }],
+        )
+        r = next(
+            x for x in wired.search_papers(required_terms=["impedance"])
+            if x["doc_id"] == "TAB004"
+        )
+        assert r["chunk_type"] == "table"
+        assert r["num_rows"] == 1 and r["num_cols"] == 2
+        assert r["table_index"] == 1
+        assert r["caption"].startswith("Table 2.")
+        assert "| subject |" in r["passage"]

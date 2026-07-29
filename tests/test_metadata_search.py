@@ -413,16 +413,6 @@ class TestServerToolsAcceptFilters:
         assert "tag" in desc.lower(), "search_topic description should mention 'tag'"
         assert "collection" in desc.lower(), "search_topic description should mention 'collection'"
 
-    def test_search_tables_has_filter_params_in_description(self):
-        """search_tables tool description should mention filter params."""
-        from deep_zotero.server import search_tables
-
-        desc = (getattr(search_tables, 'description', None) or search_tables.__doc__ or '')
-
-        assert "author" in desc.lower(), "search_tables description should mention 'author'"
-        assert "tag" in desc.lower(), "search_tables description should mention 'tag'"
-        assert "collection" in desc.lower(), "search_tables description should mention 'collection'"
-
     def test_build_chromadb_filters_only_handles_years(self):
         """_build_chromadb_filters should only handle year filters."""
         from deep_zotero.server import _build_chromadb_filters

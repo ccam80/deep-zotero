@@ -151,6 +151,8 @@ def _stored_chunk_to_retrieval_result(chunk) -> RetrievalResult:
         section=meta.get("section", "table"),  # Tables default to "table" section
         section_confidence=meta.get("section_confidence", 1.0),
         journal_quartile=meta.get("journal_quartile"),
+        chunk_type=meta.get("chunk_type", "text"),
+        metadata=meta,
     )
 
 
@@ -195,10 +197,17 @@ def _build_chromadb_filters(
 
 
 def _meta_get(r, key: str, default: str = "") -> str:
-    """Get a metadata field from StoredChunk (.metadata dict) or RetrievalResult (attrs)."""
+    """Get a metadata field from StoredChunk (.metadata dict) or RetrievalResult (attrs).
+
+    Attributes win: RetrievalResult also carries a raw metadata dict now, but
+    it is empty on results built directly rather than from a stored chunk.
+    """
+    value = getattr(r, key, None)
+    if value is not None:
+        return value
     if hasattr(r, "metadata") and isinstance(r.metadata, dict):
         return r.metadata.get(key, default)
-    return getattr(r, key, default)
+    return default
 
 
 def _apply_text_filters(
@@ -280,7 +289,33 @@ def _result_to_dict(r) -> dict:
         "full_context": r.full_context(),
         "doc_id": r.doc_id,
         "chunk_index": r.chunk_index,
+        "chunk_type": r.chunk_type,
+        **_type_specific_fields(r),
     }
+
+
+def _type_specific_fields(r) -> dict:
+    """Fields that only apply to table or figure chunks.
+
+    A table's passage is its markdown and a figure's is its caption, but
+    neither is usable without the extras: a figure needs image_path to be
+    looked at, a table needs its dimensions to be trusted.
+    """
+    meta = r.metadata or {}
+    if r.chunk_type == "table":
+        return {
+            "table_index": meta.get("table_index", 0),
+            "caption": meta.get("table_caption", ""),
+            "num_rows": meta.get("table_num_rows", 0),
+            "num_cols": meta.get("table_num_cols", 0),
+        }
+    if r.chunk_type == "figure":
+        return {
+            "figure_index": meta.get("figure_index", 0),
+            "caption": meta.get("caption", ""),
+            "image_path": meta.get("image_path", ""),
+        }
+    return {}
 
 
 @mcp.tool()
@@ -570,198 +605,6 @@ def search_topic(
 
 
 @mcp.tool()
-def search_tables(
-    query: str,
-    top_k: int = 10,
-    year_min: int | None = None,
-    year_max: int | None = None,
-    author: str | None = None,
-    tag: str | None = None,
-    collection: str | None = None,
-    journal_weights: dict[str, float] | None = None,
-) -> list[dict]:
-    """
-    Search for tables in indexed papers.
-
-    Searches table content (headers, cells, captions) semantically.
-    Returns tables as markdown with metadata. Use this for table-specific
-    searches; for mixed content searches (e.g. tables in results sections),
-    use search_papers with chunk_types=["table"] and section_weights.
-
-    Results are reranked by composite score combining semantic similarity
-    and journal quartile. Tables are assigned section="table" with
-    default weight 0.9.
-
-    Args:
-        query: Search query describing desired table content
-        top_k: Number of tables to return (1-30)
-        year_min: Minimum publication year filter
-        year_max: Maximum publication year filter
-        author: Filter by author name (case-insensitive substring match)
-        tag: Filter by Zotero tag (case-insensitive substring match)
-        collection: Filter by Zotero collection name (substring match)
-        journal_weights: Override journal quartile weights. Keys: Q1, Q2,
-            Q3, Q4, unknown. Values are 0.0-1.0.
-
-    Returns:
-        List of matching tables with:
-        - doc_title, authors, year, citation_key: Bibliographic info
-        - page: Page number where table appears
-        - table_index: Index of table on page
-        - caption: Table caption if detected
-        - table_markdown: Full table as markdown
-        - num_rows, num_cols: Table dimensions
-        - relevance_score: Semantic similarity (0-1)
-        - composite_score: Reranked score (similarity * section * journal)
-        - doc_id: Document ID for use with get_passage_context
-    """
-    start = time.perf_counter()
-
-    # Validate journal_weights if provided
-    if journal_weights is not None:
-        errors = validate_journal_weights(journal_weights)
-        if errors:
-            raise ToolError(f"Invalid journal_weights: {'; '.join(errors)}")
-
-    top_k = max(1, min(top_k, 30))
-    store = _get_store()
-    reranker = _get_reranker()
-
-    # Build filters: chunk_type=table + year range (ChromaDB-native operators only)
-    type_filter = {"chunk_type": {"$eq": "table"}}
-    year_filter = _build_chromadb_filters(year_min, year_max)
-    filters = {"$and": [type_filter, year_filter]} if year_filter else type_filter
-
-    # Oversample for reranking; double if text filters active
-    base_fetch = min(top_k * _config.oversample_multiplier, 90)
-    fetch_k = base_fetch * 2 if _has_text_filters(author, tag, collection) else base_fetch
-
-    results = store.search(query=query, top_k=fetch_k, filters=filters)
-    results = _apply_text_filters(results, author, tag, collection)
-
-    # Apply reranking (or bypass if disabled)
-    if _config.rerank_enabled:
-        # Convert StoredChunk to RetrievalResult for reranking
-        retrieval_results = [_stored_chunk_to_retrieval_result(r) for r in results]
-        # Note: section_weights not needed - all tables have section="table"
-        reranked = reranker.rerank(retrieval_results, journal_weights=journal_weights)
-        top_results = reranked[:min(top_k, 30)]
-    else:
-        # No reranking - set composite_score = relevance_score
-        retrieval_results = [_stored_chunk_to_retrieval_result(r) for r in results]
-        top_results = [replace(r, composite_score=r.score) for r in retrieval_results]
-        top_results = top_results[:min(top_k, 30)]
-
-    # Build output from reranked RetrievalResult objects
-    # Need to look up original StoredChunk for table-specific metadata
-    result_by_id = {r.id: r for r in results}
-
-    output = []
-    for r in top_results:
-        original = result_by_id.get(r.chunk_id)
-        meta = original.metadata if original else {}
-
-        output.append({
-            "doc_title": r.doc_title,
-            "authors": r.authors,
-            "year": r.year,
-            "citation_key": r.citation_key,
-            "publication": r.publication,
-            "journal_quartile": r.journal_quartile,
-            "page": r.page_num,
-            "table_index": meta.get("table_index", 0),
-            "caption": meta.get("table_caption", ""),
-            "table_markdown": r.text,
-            "num_rows": meta.get("table_num_rows", 0),
-            "num_cols": meta.get("table_num_cols", 0),
-            "relevance_score": round(r.score, 3),
-            "composite_score": round(r.composite_score, 3) if r.composite_score is not None else None,
-            "doc_id": r.doc_id,
-        })
-
-    logger.debug(f"search_tables: {time.perf_counter() - start:.3f}s")
-    return output
-
-
-@mcp.tool()
-def search_figures(
-    query: str,
-    top_k: int = 10,
-    year_min: int | None = None,
-    year_max: int | None = None,
-    author: str | None = None,
-    tag: str | None = None,
-    collection: str | None = None,
-) -> list[dict]:
-    """
-    Search for figures by caption content.
-
-    Searches figure captions semantically. Returns figures with
-    their captions, page numbers, and paths to extracted images.
-    Use this for figure-specific searches; for mixed content searches
-    (e.g. figures in results sections), use search_papers with
-    chunk_types=["figure"] and section_weights.
-
-    Figures without detected captions are included as "orphans"
-    with a generic description like "Figure on page X".
-
-    Args:
-        query: Search query for figure captions
-        top_k: Number of figures to return (1-30)
-        year_min: Minimum publication year filter
-        year_max: Maximum publication year filter
-        author: Filter by author name (case-insensitive substring match)
-        tag: Filter by Zotero tag (case-insensitive substring match)
-        collection: Filter by Zotero collection name (substring match)
-
-    Returns:
-        List of matching figures with:
-        - doc_title, authors, year, citation_key: Bibliographic info
-        - page_num: Page number where figure appears
-        - figure_index: Index of figure on page
-        - caption: Figure caption (empty string for orphans)
-        - image_path: Path to extracted PNG image
-        - relevance_score: Semantic similarity (0-1)
-        - doc_id: Document ID for use with other tools
-    """
-    start = time.perf_counter()
-    top_k = max(1, min(top_k, 30))
-    store = _get_store()
-
-    # Build filters: chunk_type=figure + year range (ChromaDB-native operators only)
-    type_filter = {"chunk_type": {"$eq": "figure"}}
-    year_filter = _build_chromadb_filters(year_min, year_max)
-    filters = {"$and": [type_filter, year_filter]} if year_filter else type_filter
-
-    # Oversample if text filters active
-    base_fetch = min(top_k * 3, 90)
-    fetch_k = base_fetch * 2 if _has_text_filters(author, tag, collection) else base_fetch
-
-    results = store.search(query=query, top_k=fetch_k, filters=filters)
-    results = _apply_text_filters(results, author, tag, collection)
-
-    output = []
-    for r in results[:top_k]:
-        meta = r.metadata
-        output.append({
-            "doc_id": meta.get("doc_id", ""),
-            "doc_title": meta.get("doc_title", ""),
-            "authors": meta.get("authors", ""),
-            "year": meta.get("year"),
-            "citation_key": meta.get("citation_key", ""),
-            "publication": meta.get("publication", ""),
-            "page_num": meta.get("page_num", 0),
-            "figure_index": meta.get("figure_index", 0),
-            "caption": meta.get("caption", ""),
-            "image_path": meta.get("image_path", ""),
-            "relevance_score": round(r.score, 3),
-        })
-
-    logger.debug(f"search_figures: {time.perf_counter() - start:.3f}s")
-    return output
-
-
-@mcp.tool()
 def get_passage_context(
     doc_id: str,
     chunk_index: int,
@@ -774,7 +617,7 @@ def get_passage_context(
 
     Use after search_papers to get more context.
 
-    For table chunks (from search_tables), pass table_page and table_index
+    For table chunks, pass table_page and table_index
     to find the text that references the table and return that with context.
 
     Args:

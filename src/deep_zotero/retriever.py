@@ -101,6 +101,8 @@ class Retriever:
                 journal_quartile=journal_quartile,
                 context_before=context_before,
                 context_after=context_after,
+                chunk_type=hit.metadata.get("chunk_type", "text"),
+                metadata=hit.metadata,
             ))
 
         return results

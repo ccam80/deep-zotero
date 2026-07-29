@@ -328,14 +328,42 @@ class TestDefaultWeights:
 
     def test_all_sections_have_weights(self):
         expected_sections = {
-            "results", "conclusion", "table", "methods", "abstract", "background",
-            "unknown", "discussion", "introduction", "preamble", "appendix",
-            "references"
+            "results", "conclusion", "table", "figure", "methods", "abstract",
+            "background", "unknown", "discussion", "introduction", "preamble",
+            "appendix", "references"
         }
         assert set(DEFAULT_SECTION_WEIGHTS.keys()) == expected_sections
 
     def test_valid_sections_matches_defaults(self):
         assert VALID_SECTIONS == set(DEFAULT_SECTION_WEIGHTS.keys())
+
+    def test_every_indexed_section_value_has_a_weight(self):
+        """A section the indexer writes but the reranker lacks silently falls
+        through to the 0.7 default and cannot be overridden, because
+        validation rejects any key absent from VALID_SECTIONS. That is how
+        every figure came to rank below unclassified body text."""
+        from deep_zotero.server import VALID_CHUNK_TYPES
+
+        # add_tables/add_figures write the chunk type as the section label
+        placeholders = VALID_CHUNK_TYPES - {"text"}
+        missing = placeholders - set(DEFAULT_SECTION_WEIGHTS)
+        assert not missing, f"chunk-type sections with no weight: {missing}"
+        for name in placeholders:
+            assert not validate_section_weights({name: 1.0}), (
+                f"{name!r} is not overridable"
+            )
+
+    def test_chunk_type_placeholders_are_ranking_neutral(self):
+        """'table' and 'figure' name a chunk type, not a section: indexing
+        discards the real section, so the placeholder carries no evidence
+        about relevance and must not act as a penalty."""
+        from deep_zotero.server import VALID_CHUNK_TYPES
+
+        for name in VALID_CHUNK_TYPES - {"text"}:
+            assert DEFAULT_SECTION_WEIGHTS[name] == 1.0, (
+                f"{name!r} weight {DEFAULT_SECTION_WEIGHTS[name]} penalises "
+                f"content for a section label the pipeline chose"
+            )
 
     def test_weights_in_range(self):
         for section, weight in DEFAULT_SECTION_WEIGHTS.items():
