@@ -227,7 +227,7 @@ def wired(store: VectorStore, mock_config, monkeypatch):
 
 
 class TestSearchPapersLexical:
-    """required_terms replaced the standalone boolean tool."""
+    """required_terms drives exact word matching on search_papers."""
 
     def test_requires_query_or_terms(self, wired):
         from deep_zotero.server import ToolError
@@ -275,8 +275,7 @@ class TestSearchPapersLexical:
 
 
 class TestResultCarriesChunkType:
-    """search_tables and search_figures were deleted, so search_papers must
-    return everything they used to expose."""
+    """search_papers labels each result and adds table/figure fields."""
 
     def test_text_result_is_labelled(self, wired):
         results = wired.search_papers(required_terms=["heart"])

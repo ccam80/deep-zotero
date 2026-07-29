@@ -338,10 +338,7 @@ class TestDefaultWeights:
         assert VALID_SECTIONS == set(DEFAULT_SECTION_WEIGHTS.keys())
 
     def test_every_indexed_section_value_has_a_weight(self):
-        """A section the indexer writes but the reranker lacks silently falls
-        through to the 0.7 default and cannot be overridden, because
-        validation rejects any key absent from VALID_SECTIONS. That is how
-        every figure came to rank below unclassified body text."""
+        """A section with no weight takes the 0.7 fallback and cannot be overridden."""
         from deep_zotero.server import VALID_CHUNK_TYPES
 
         # add_tables/add_figures write the chunk type as the section label
@@ -354,15 +351,12 @@ class TestDefaultWeights:
             )
 
     def test_chunk_type_placeholders_are_ranking_neutral(self):
-        """'table' and 'figure' name a chunk type, not a section: indexing
-        discards the real section, so the placeholder carries no evidence
-        about relevance and must not act as a penalty."""
+        """'table' and 'figure' name a chunk type, not a detected section."""
         from deep_zotero.server import VALID_CHUNK_TYPES
 
         for name in VALID_CHUNK_TYPES - {"text"}:
             assert DEFAULT_SECTION_WEIGHTS[name] == 1.0, (
-                f"{name!r} weight {DEFAULT_SECTION_WEIGHTS[name]} penalises "
-                f"content for a section label the pipeline chose"
+                f"{name!r} weight {DEFAULT_SECTION_WEIGHTS[name]} is a penalty"
             )
 
     def test_weights_in_range(self):

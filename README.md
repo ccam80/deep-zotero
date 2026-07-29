@@ -198,9 +198,8 @@ Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag
 
 ### Tables and figures
 
-There are no separate table or figure tools. `search_papers` covers all three
-chunk types by default, and every result names its `chunk_type`. Narrow with
-`chunk_types` when you want only one:
+`search_papers` covers text, tables and figures. Every result names its
+`chunk_type`; narrow with `chunk_types`:
 
 ```python
 search_papers("impedance measurement", chunk_types=["table"])
@@ -208,39 +207,34 @@ search_papers("impedance measurement", chunk_types=["table"])
 
 Table results add `table_index`, `caption`, `num_rows` and `num_cols`, with the
 table markdown in `passage`. Figure results add `figure_index`, `caption` and
-`image_path` — the path to the extracted PNG — with the caption in `passage`.
+`image_path` (the extracted PNG), with the caption in `passage`.
 
-`table` and `figure` are also the *section* labels these chunks carry: indexing
-overwrites the real section with a placeholder naming the chunk type, so the
-section a table appeared in is not recorded. Both weigh 1.0 in reranking,
-because a placeholder is not evidence about relevance and should not act as a
-penalty.
+Table and figure chunks carry `section` values of `table` and `figure` rather
+than the section they appeared in. Both weigh 1.0 in reranking.
 
 ### Exact word matching
 
-There is no separate boolean tool. `search_papers` takes `required_terms`, a list
-of words that must appear in the passage as whole words, case-insensitively —
-`heart` matches `Heart` but not `hearth`. Set `terms_operator` to `AND` (default)
-or `OR`.
+`required_terms` lists words that must appear in the passage as whole words,
+case-insensitively — `heart` matches `Heart` but not `hearth`. `terms_operator`
+is `AND` (default) or `OR`.
 
-Terms constrain the search rather than filtering its output, so a passage
-containing a rare acronym, gene symbol or model number is found even when
-semantic similarity would never have surfaced it:
+Terms constrain the search itself, so a passage containing a rare acronym is
+found even when semantic similarity would not rank it:
 
 ```python
 search_papers("autonomic regulation", required_terms=["SDNN"])
 ```
 
 Omit `query` to retrieve every matching passage in the index, unranked, with no
-embedding call — the exhaustive lexical lookup:
+embedding call:
 
 ```python
 search_papers(required_terms=["propranolol", "SDNN"], terms_operator="AND")
 ```
 
 At least one of `query` or `required_terms` is required. `section_weights` and
-`journal_weights` affect ranking only, so they are ignored when `query` is
-omitted. No phrase search, no stemming.
+`journal_weights` affect ranking only and are ignored when `query` is omitted.
+No phrase search, no stemming.
 
 ### Context expansion
 

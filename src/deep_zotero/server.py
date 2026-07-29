@@ -199,8 +199,7 @@ def _build_chromadb_filters(
 def _meta_get(r, key: str, default: str = "") -> str:
     """Get a metadata field from StoredChunk (.metadata dict) or RetrievalResult (attrs).
 
-    Attributes win: RetrievalResult also carries a raw metadata dict now, but
-    it is empty on results built directly rather than from a stored chunk.
+    Attributes take precedence; RetrievalResult.metadata may be empty.
     """
     value = getattr(r, key, None)
     if value is not None:
@@ -295,12 +294,7 @@ def _result_to_dict(r) -> dict:
 
 
 def _type_specific_fields(r) -> dict:
-    """Fields that only apply to table or figure chunks.
-
-    A table's passage is its markdown and a figure's is its caption, but
-    neither is usable without the extras: a figure needs image_path to be
-    looked at, a table needs its dimensions to be trusted.
-    """
+    """Extra result fields for table and figure chunks."""
     meta = r.metadata or {}
     if r.chunk_type == "table":
         return {
