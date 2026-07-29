@@ -113,13 +113,12 @@ def temp_db_path(tmp_path: Path) -> Path:
 def mock_zotero_db(tmp_path: Path) -> Path:
     """Create a mock Zotero database with sample data for testing.
 
-    This creates a minimal Zotero SQLite schema with the tables needed
-    for full-text search testing.
+    Covers the schema ZoteroClient reads: full-text search plus everything
+    get_all_items_with_pdfs() joins.
     """
     db_path = tmp_path / "zotero.sqlite"
     conn = sqlite3.connect(db_path)
 
-    # Create minimal Zotero schema
     conn.executescript("""
         -- Core item tables
         CREATE TABLE items (
@@ -131,15 +130,29 @@ def mock_zotero_db(tmp_path: Path) -> Path:
             dateModified TEXT
         );
 
+        CREATE TABLE itemTypes (itemTypeID INTEGER PRIMARY KEY, typeName TEXT);
+
+        CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY);
+
         -- Attachment relationship
         CREATE TABLE itemAttachments (
             itemID INTEGER PRIMARY KEY,
             parentItemID INTEGER,
             path TEXT,
             contentType TEXT,
+            linkMode INTEGER,
             FOREIGN KEY (itemID) REFERENCES items(itemID),
             FOREIGN KEY (parentItemID) REFERENCES items(itemID)
         );
+
+        -- Tags and collections
+        CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER);
+        CREATE TABLE collections (
+            collectionID INTEGER PRIMARY KEY,
+            collectionName TEXT
+        );
+        CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
 
         -- Full-text search tables (Zotero's custom FTS)
         CREATE TABLE fulltextWords (
@@ -192,19 +205,38 @@ def mock_zotero_db(tmp_path: Path) -> Path:
             orderIndex INTEGER
         );
 
-        -- Insert some test data
-        INSERT INTO items (itemID, key) VALUES (1, 'ABC12345');
-        INSERT INTO items (itemID, key) VALUES (2, 'DEF67890');
-        INSERT INTO items (itemID, key) VALUES (3, 'GHI11111');
+        -- Item types, using IDs that differ from Zotero's so tests catch any
+        -- code that hardcodes them instead of resolving by name.
+        INSERT INTO itemTypes (itemTypeID, typeName) VALUES (4, 'journalArticle');
+        INSERT INTO itemTypes (itemTypeID, typeName) VALUES (7, 'attachment');
+        INSERT INTO itemTypes (itemTypeID, typeName) VALUES (8, 'note');
+        INSERT INTO itemTypes (itemTypeID, typeName) VALUES (9, 'annotation');
+
+        INSERT INTO fields (fieldID, fieldName) VALUES (1, 'title');
+        INSERT INTO fields (fieldID, fieldName) VALUES (2, 'date');
+        INSERT INTO fields (fieldID, fieldName) VALUES (3, 'publicationTitle');
+        INSERT INTO fields (fieldID, fieldName) VALUES (4, 'DOI');
+        INSERT INTO fields (fieldID, fieldName) VALUES (9, 'citationKey');
+
+        -- Parent items: ABC12345 and DEF67890 have PDFs, GHI11111 does not
+        INSERT INTO items (itemID, itemTypeID, key) VALUES (1, 4, 'ABC12345');
+        INSERT INTO items (itemID, itemTypeID, key) VALUES (2, 4, 'DEF67890');
+        INSERT INTO items (itemID, itemTypeID, key) VALUES (3, 4, 'GHI11111');
 
         -- Attachment items
-        INSERT INTO items (itemID, key) VALUES (101, 'ATT00001');
-        INSERT INTO items (itemID, key) VALUES (102, 'ATT00002');
+        INSERT INTO items (itemID, itemTypeID, key) VALUES (101, 7, 'ATT00001');
+        INSERT INTO items (itemID, itemTypeID, key) VALUES (102, 7, 'ATT00002');
 
-        INSERT INTO itemAttachments (itemID, parentItemID, path)
-        VALUES (101, 1, 'storage:test1.pdf');
-        INSERT INTO itemAttachments (itemID, parentItemID, path)
-        VALUES (102, 2, 'storage:test2.pdf');
+        INSERT INTO itemAttachments (itemID, parentItemID, path, contentType, linkMode)
+        VALUES (101, 1, 'storage:test1.pdf', 'application/pdf', 0);
+        INSERT INTO itemAttachments (itemID, parentItemID, path, contentType, linkMode)
+        VALUES (102, 2, 'storage:test2.pdf', 'application/pdf', 0);
+
+        -- Titles
+        INSERT INTO itemDataValues (valueID, value) VALUES (1, 'Heart Rate Paper');
+        INSERT INTO itemDataValues (valueID, value) VALUES (2, 'Electrode Paper');
+        INSERT INTO itemData (itemID, fieldID, valueID) VALUES (1, 1, 1);
+        INSERT INTO itemData (itemID, fieldID, valueID) VALUES (2, 1, 2);
 
         -- Full-text words for testing boolean search
         INSERT INTO fulltextWords (wordID, word) VALUES (1, 'heart');

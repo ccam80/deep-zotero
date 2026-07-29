@@ -13,7 +13,7 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 - Python 3.10+
 - A [Gemini API key](https://aistudio.google.com/app/apikey) for embeddings (unless using `embedding_provider: "local"`)
 - An [Anthropic API key](https://console.anthropic.com/) for vision-based table extraction (optional but recommended)
-- A Zotero installation with PDFs in `storage/`
+- **Zotero 8** with PDFs in `storage/`. Citation keys are read from Zotero's native `citationKey` field, which earlier versions do not have — on Zotero 7 every citation key comes back empty.
 - **Tesseract-OCR** — only needed to OCR scanned / image-only PDF pages. Install [Tesseract](https://github.com/tesseract-ocr/tesseract) with the language data you need, then set the `TESSDATA_PREFIX` environment variable to its `tessdata` directory (e.g. `C:\Program Files\Tesseract-OCR\tessdata`). PyMuPDF locates the OCR data via that variable; without it, scanned pages are skipped (`"OCR disabled because Tesseract language data not found."`). Text-based PDFs do not need Tesseract.
 
 ## Install

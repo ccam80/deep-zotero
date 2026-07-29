@@ -82,14 +82,6 @@ class VectorStoreProtocol(Protocol):
         """Delete all chunks for a document."""
         ...
 
-    def refresh_citation_keys(
-        self,
-        citation_keys: dict[str, str],
-        dry_run: bool = True,
-    ) -> dict:
-        """Refresh stored citation-key metadata without re-embedding."""
-        ...
-
     def get_indexed_doc_ids(self) -> set[str]:
         """Get IDs of all indexed documents."""
         ...
