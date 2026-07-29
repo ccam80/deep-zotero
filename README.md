@@ -209,12 +209,9 @@ search_papers(required_terms=["SDNN"], sections=["results"], year_min=1991, year
 | `author`, `tag`, `collection` | after retrieval | case-insensitive substring |
 | `section_weights`, `journal_weights` | during reranking, so only with `query` | reorders, excludes nothing |
 
-Valid `sections`: `abstract`, `introduction`, `background`, `methods`,
-`results`, `discussion`, `conclusion`, `references`, `appendix`, `preamble`,
-`table`, `figure`, `unknown`.
+Valid `sections`: `abstract`, `introduction`, `background`, `methods`, `results`, `discussion`, `conclusion`, `references`, `appendix`, `preamble`, `table`, `figure`, `unknown`.
 
-Valid `journal_quartiles`: `Q1`–`Q4`, and `unknown` for papers whose journal has
-no quartile.
+Valid `journal_quartiles`: `Q1`, `Q2`, `Q3`, `Q4`, and `unknown` for journals with no quartile.
 
 ### Tables and figures
 
