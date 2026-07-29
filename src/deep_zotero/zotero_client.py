@@ -3,24 +3,31 @@ import sqlite3
 from pathlib import Path
 from .models import ZoteroItem
 
+# itemTypeID values come from Zotero's globalSchema and change between
+# versions, so item types are matched by name.
+NON_BIBLIOGRAPHIC_TYPE_IDS = """
+    SELECT itemTypeID FROM itemTypes
+    WHERE typeName IN ('note', 'attachment', 'annotation')
+"""
+
 
 class ZoteroClient:
     """
     Read-only access to Zotero's SQLite database.
 
     Key schema notes:
-    - itemTypeID 1 = note, 14 = attachment (filter these for "real" items)
     - EAV pattern: itemData + itemDataValues + fields tables
     - Attachments: linkMode 0,1,4 = storage/{key}/, linkMode 2 = linked file
+    - Citation keys come from Zotero's native citationKey field
     """
 
     # Combined query: items with PDFs and all metadata
-    ITEMS_WITH_PDFS_SQL = """
+    ITEMS_WITH_PDFS_SQL = f"""
     WITH
         base_items AS (
             SELECT items.itemID, items."key" AS itemKey, items.itemTypeID
             FROM items
-            WHERE items.itemTypeID NOT IN (1, 14)
+            WHERE items.itemTypeID NOT IN ({NON_BIBLIOGRAPHIC_TYPE_IDS})
               AND items.itemID NOT IN (SELECT itemID FROM deletedItems)
         ),
         titles AS (
@@ -68,6 +75,13 @@ class ZoteroClient:
             JOIN fields ON itemData.fieldID = fields.fieldID
             WHERE fields.fieldName = 'DOI'
         ),
+        citation_keys AS (
+            SELECT itemData.itemID, itemDataValues.value AS citationKey
+            FROM itemData
+            JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
+            JOIN fields ON itemData.fieldID = fields.fieldID
+            WHERE fields.fieldName = 'citationKey'
+        ),
         item_tags AS (
             SELECT items.itemID, GROUP_CONCAT(tags.name, '; ') AS tags
             FROM items
@@ -100,6 +114,7 @@ class ZoteroClient:
         years.year,
         COALESCE(publications.publication, '') AS publication,
         COALESCE(dois.doi, '') AS doi,
+        COALESCE(citation_keys.citationKey, '') AS citationKey,
         COALESCE(item_tags.tags, '') AS tags,
         COALESCE(item_collections.collection_names, '') AS collections,
         pdfs.attachmentKey,
@@ -111,6 +126,7 @@ class ZoteroClient:
     LEFT JOIN authors ON base_items.itemID = authors.itemID
     LEFT JOIN publications ON base_items.itemID = publications.itemID
     LEFT JOIN dois ON base_items.itemID = dois.itemID
+    LEFT JOIN citation_keys ON base_items.itemID = citation_keys.itemID
     LEFT JOIN item_tags ON base_items.itemID = item_tags.itemID
     LEFT JOIN item_collections ON base_items.itemID = item_collections.itemID
     JOIN pdfs ON base_items.itemID = pdfs.parentItemID
@@ -120,69 +136,8 @@ class ZoteroClient:
     def __init__(self, data_dir: Path):
         self.data_dir = Path(data_dir)
         self.db_path = self.data_dir / "zotero.sqlite"
-        self.bbt_db_path = self.data_dir / "better-bibtex.sqlite"
         if not self.db_path.exists():
             raise FileNotFoundError(f"Zotero database not found: {self.db_path}")
-
-    def _load_native_citation_keys(self) -> dict[str, str]:
-        """Load Zotero's native citation-key field by schema name.
-
-        Modern Zotero versions store citation keys in the normal item-data EAV
-        tables.  The field ID is library/schema dependent, so it must be
-        resolved through ``fields.fieldName`` rather than hard-coded.
-        """
-        conn = sqlite3.connect(
-            f"file:{self.db_path}?mode=ro&immutable=1",
-            uri=True,
-        )
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = conn.execute("""
-                SELECT items."key" AS itemKey, itemDataValues.value AS citationKey
-                FROM itemData
-                JOIN fields ON itemData.fieldID = fields.fieldID
-                JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
-                JOIN items ON itemData.itemID = items.itemID
-                WHERE fields.fieldName = 'citationKey'
-            """).fetchall()
-            return {
-                row["itemKey"]: row["citationKey"].strip()
-                for row in rows
-                if row["citationKey"] and row["citationKey"].strip()
-            }
-        finally:
-            conn.close()
-
-    def _load_legacy_citation_keys(self) -> dict[str, str]:
-        """Load keys from the legacy Better BibTeX sidecar, when present."""
-        if not self.bbt_db_path.exists():
-            return {}
-        conn = sqlite3.connect(f"file:{self.bbt_db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = conn.execute("SELECT itemKey, citationKey FROM citationkey").fetchall()
-            return {
-                row["itemKey"]: row["citationKey"].strip()
-                for row in rows
-                if row["citationKey"] and row["citationKey"].strip()
-            }
-        finally:
-            conn.close()
-
-    def _load_citation_keys(self) -> dict[str, str]:
-        """Return itemKey -> citationKey with deterministic source precedence.
-
-        Native Zotero keys are authoritative.  The legacy Better BibTeX
-        sidecar fills only items that have no non-empty native key, allowing
-        partial migrations and old libraries to work without ambiguity.
-        """
-        citation_keys = self._load_legacy_citation_keys()
-        citation_keys.update(self._load_native_citation_keys())
-        return citation_keys
-
-    def get_citation_keys(self) -> dict[str, str]:
-        """Return all available citation keys without loading PDFs or items."""
-        return self._load_citation_keys()
 
     def _resolve_pdf_path(self, path_field: str | None, link_mode: int, attachment_key: str) -> Path | None:
         """
@@ -221,8 +176,6 @@ class ZoteroClient:
         finally:
             conn.close()
 
-        citation_keys = self.get_citation_keys()
-
         items = []
         for row in rows:
             pdf_path = self._resolve_pdf_path(
@@ -230,14 +183,13 @@ class ZoteroClient:
                 row["linkMode"],
                 row["attachmentKey"]
             )
-            item_key = row["itemKey"]
             items.append(ZoteroItem(
-                item_key=item_key,
+                item_key=row["itemKey"],
                 title=row["title"],
                 authors=row["authors"],
                 year=row["year"],
                 pdf_path=pdf_path,
-                citation_key=citation_keys.get(item_key, ""),
+                citation_key=row["citationKey"],
                 publication=row["publication"],
                 doi=row["doi"],
                 tags=row["tags"],
@@ -263,10 +215,10 @@ class ZoteroClient:
         conn.row_factory = sqlite3.Row
 
         try:
-            # Total library items (non-note, non-attachment, non-deleted)
-            total = conn.execute("""
+            # Total library items (bibliographic, non-deleted)
+            total = conn.execute(f"""
                 SELECT COUNT(*) FROM items
-                WHERE itemTypeID NOT IN (1, 14)
+                WHERE itemTypeID NOT IN ({NON_BIBLIOGRAPHIC_TYPE_IDS})
                   AND itemID NOT IN (SELECT itemID FROM deletedItems)
             """).fetchone()[0]
 
@@ -279,23 +231,23 @@ class ZoteroClient:
             """).fetchall())
 
             # Items with only non-PDF attachments (excluding those that also have PDFs)
-            non_pdf_rows = conn.execute("""
+            pdf_id_list = ",".join(str(i) for i in pdf_item_ids) if pdf_item_ids else "NULL"
+            non_pdf_rows = conn.execute(f"""
                 SELECT ia.contentType,
                        COUNT(DISTINCT COALESCE(ia.parentItemID, ia.itemID))
                 FROM itemAttachments ia
                 JOIN items base ON COALESCE(ia.parentItemID, ia.itemID) = base.itemID
-                WHERE base.itemTypeID NOT IN (1, 14)
+                WHERE base.itemTypeID NOT IN ({NON_BIBLIOGRAPHIC_TYPE_IDS})
                   AND base.itemID NOT IN (SELECT itemID FROM deletedItems)
-                  AND COALESCE(ia.parentItemID, ia.itemID) NOT IN ({})
+                  AND COALESCE(ia.parentItemID, ia.itemID) NOT IN ({pdf_id_list})
                 GROUP BY ia.contentType
-            """.format(",".join(str(i) for i in pdf_item_ids) if pdf_item_ids else "NULL")
-            ).fetchall()
+            """).fetchall()
 
             non_pdf_types = {r[0] or "(null)": r[1] for r in non_pdf_rows}
             items_with_non_pdf = sum(non_pdf_types.values())
 
             # Get the full PDF attachment details to check resolution
-            pdf_rows = conn.execute("""
+            pdf_rows = conn.execute(f"""
                 SELECT
                     base."key" AS itemKey,
                     COALESCE(t.value, '[No Title]') AS title,
@@ -312,7 +264,7 @@ class ZoteroClient:
                     JOIN fields f ON id2.fieldID = f.fieldID
                     WHERE f.fieldName = 'title'
                 ) t ON base.itemID = t.itemID
-                WHERE base.itemTypeID NOT IN (1, 14)
+                WHERE base.itemTypeID NOT IN ({NON_BIBLIOGRAPHIC_TYPE_IDS})
                   AND base.itemID NOT IN (SELECT itemID FROM deletedItems)
                   AND ia.contentType = 'application/pdf'
                   AND ia.linkMode IN (0, 1, 2)
