@@ -206,7 +206,7 @@ Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `c
 
 ### Boolean search
 
-**`search_boolean`** — Exact word matching via Zotero's native full-text index. Returns papers (not passages) matching AND/OR word queries. No phrase search, no stemming.
+**`search_boolean`** — Exact word matching via Zotero's native full-text index. Returns papers (not passages) matching AND/OR word queries. No phrase search, no stemming. Restricted to papers in the semantic index, so every result can be passed to `search_papers`.
 
 Parameters: `query` (space-separated terms), `operator` (AND/OR), `year_min`, `year_max`.
 
@@ -230,7 +230,7 @@ Requires the document to have a DOI in Zotero.
 
 **`index_library`** — Trigger indexing from the MCP client. Parameters: `force_reindex`, `limit`, `item_key`, `title_pattern`, `no_vision`.
 
-**`get_index_stats`** — Document/chunk/table/figure counts, section coverage, journal coverage.
+**`get_index_stats`** — Document/chunk/table/figure counts, section coverage, journal coverage. Counts cover the entire collection. The result is cached in `index_stats.sqlite` next to the Chroma database and refreshed at the end of every indexing run; pass `refresh: true` to force a recount.
 
 **`get_reranking_config`** — Current reranking weights and valid override values.
 
