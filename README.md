@@ -214,7 +214,7 @@ Valid `sections`: `abstract`, `introduction`, `background`, `methods`,
 `table`, `figure`, `unknown`.
 
 Valid `journal_quartiles`: `Q1`–`Q4`, and `unknown` for papers whose journal has
-no quartile. Most papers are unranked, so a quartile filter returns few results.
+no quartile.
 
 ### Tables and figures
 
