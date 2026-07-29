@@ -408,6 +408,48 @@ class VectorStore:
             return results["metadatas"][0]
         return None
 
+    @staticmethod
+    def build_word_filter(words: list[str], operator: str = "AND") -> dict:
+        """Build a Chroma ``where_document`` clause matching whole words.
+
+        Each term becomes a case-insensitive word-boundary regex, so "heart"
+        matches "Heart" but not "hearth". Chroma rejects ``$and``/``$or`` with
+        fewer than two operands, so a single term is returned bare.
+        """
+        clauses = [{"$regex": rf"(?i)\b{re.escape(w)}\b"} for w in words]
+        if len(clauses) == 1:
+            return clauses[0]
+        return {"$or" if operator.upper() == "OR" else "$and": clauses}
+
+    def match_chunks(
+        self,
+        words: list[str],
+        operator: str = "AND",
+        where: dict | None = None,
+    ) -> list[StoredChunk]:
+        """Return every chunk whose text contains the given words.
+
+        Exact word matching over indexed chunk text -- no embeddings and no
+        ranking, so results carry no score. ``where`` is an optional Chroma
+        metadata filter applied alongside the text match.
+        """
+        if not words:
+            return []
+
+        results = self.collection.get(
+            where=where or None,
+            where_document=self.build_word_filter(words, operator),
+            include=["documents", "metadatas"],
+        )
+        return [
+            StoredChunk(id=cid, text=doc, metadata=meta)
+            for cid, doc, meta in zip(
+                results.get("ids") or [],
+                results.get("documents") or [],
+                results.get("metadatas") or [],
+            )
+        ]
+
     def iter_metadatas(self, batch_size: int = METADATA_SCAN_BATCH) -> Iterator[dict]:
         """Yield the metadata of every chunk in the collection, one page at a time."""
         offset = 0

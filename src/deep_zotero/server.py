@@ -1052,76 +1052,97 @@ def search_boolean(
     operator: str = "AND",
     year_min: int | None = None,
     year_max: int | None = None,
+    author: str | None = None,
+    tag: str | None = None,
+    collection: str | None = None,
+    chunk_types: list[str] | None = None,
 ) -> list[dict]:
     """
-    Boolean full-text search using Zotero's native word index.
+    Boolean word search over the indexed text.
 
     Use for exact word matching with AND/OR logic. Unlike semantic search,
-    this finds exact word matches only (no synonyms or similar meaning).
+    this matches the words you give it and nothing else - no synonyms, no
+    related meaning.
 
-    This searches the full text of PDFs that Zotero has indexed. Words are
-    tokenized by Zotero's indexer, so punctuation and hyphenation affect
-    matching (e.g., "heart-rate" is two words: "heart" and "rate").
+    Matching is case-insensitive and whole-word: "heart" matches "Heart" but
+    not "hearth". Terms are split on whitespace, so a hyphenated term is
+    matched as written.
+
+    Searches the same indexed chunks as search_papers, so every result can be
+    followed up there, and matched_pages points at where the words appear.
 
     Limitations:
-    - No phrase search ("heart rate" searches for both words, not the phrase)
+    - No phrase search ("heart rate" requires both words, in any position)
     - No stemming ("running" won't match "run")
-    - Requires Zotero to have indexed the PDFs
-    - Only returns papers that are in the semantic index
+    - Covers indexed documents only; run index_library for anything missing
 
     Args:
         query: Space-separated search terms (case-insensitive)
         operator: "AND" (all terms required) or "OR" (any term matches)
         year_min: Minimum publication year filter
         year_max: Maximum publication year filter
+        author: Author name substring (case-insensitive)
+        tag: Zotero tag substring (case-insensitive)
+        collection: Zotero collection substring (case-insensitive)
+        chunk_types: Restrict to chunk types: "text", "table", "figure"
 
     Returns:
-        List of matching indexed papers with metadata (no passages - use
-        search_papers for passage retrieval on specific papers)
+        List of matching papers, most matches first, each with metadata plus
+        match_count and matched_pages. Use search_papers or
+        get_passage_context for the passage text itself.
     """
-    from .zotero_client import ZoteroClient
-
-    # Get config lazily
-    global _config
-    if _config is None:
-        _config = Config.load()
-
-    zotero = ZoteroClient(_config.zotero_data_dir)
-    matching_keys = zotero.search_fulltext(query, operator) & _get_store().get_indexed_doc_ids()
-
-    if not matching_keys:
+    words = [w.strip() for w in query.split() if w.strip()]
+    if not words:
         return []
 
-    # Get metadata for matching items
-    all_items = zotero.get_all_items_with_pdfs()
-    items_by_key = {i.item_key: i for i in all_items}
+    if chunk_types:
+        invalid = set(chunk_types) - VALID_CHUNK_TYPES
+        if invalid:
+            raise ToolError(
+                f"Invalid chunk_types: {sorted(invalid)}. "
+                f"Valid values: {sorted(VALID_CHUNK_TYPES)}"
+            )
 
-    results = []
-    for key in matching_keys:
-        item = items_by_key.get(key)
-        if not item:
+    if operator.upper() not in ("AND", "OR"):
+        raise ToolError(f"Invalid operator: {operator}. Must be 'AND' or 'OR'.")
+
+    where = _build_chromadb_filters(year_min, year_max, chunk_types)
+    chunks = _get_store().match_chunks(words, operator, where=where)
+    chunks = _apply_text_filters(chunks, author, tag, collection)
+
+    # Collapse chunk hits to one entry per document
+    by_doc: dict[str, dict] = {}
+    for c in chunks:
+        meta = c.metadata
+        doc_id = meta.get("doc_id", "")
+        if not doc_id:
             continue
+        entry = by_doc.get(doc_id)
+        if entry is None:
+            entry = by_doc[doc_id] = {
+                "item_key": doc_id,
+                "title": meta.get("doc_title", ""),
+                "authors": meta.get("authors", ""),
+                "year": meta.get("year"),
+                "publication": meta.get("publication", ""),
+                "citation_key": meta.get("citation_key", ""),
+                "tags": meta.get("tags", ""),
+                "collections": meta.get("collections", ""),
+                "doi": meta.get("doi", ""),
+                "match_count": 0,
+                "matched_pages": set(),
+            }
+        entry["match_count"] += 1
+        page = meta.get("page_num")
+        if page is not None:
+            entry["matched_pages"].add(page)
 
-        # Apply year filters
-        if year_min and (item.year is None or item.year < year_min):
-            continue
-        if year_max and (item.year is None or item.year > year_max):
-            continue
+    results = list(by_doc.values())
+    for r in results:
+        r["matched_pages"] = sorted(r["matched_pages"])
 
-        results.append({
-            "item_key": item.item_key,
-            "title": item.title,
-            "authors": item.authors,
-            "year": item.year,
-            "publication": item.publication,
-            "citation_key": item.citation_key,
-            "tags": item.tags,
-            "collections": item.collections,
-            "doi": item.doi,
-        })
-
-    # Sort by year descending
-    results.sort(key=lambda x: x.get("year") or 0, reverse=True)
+    # Most matches first, then most recent
+    results.sort(key=lambda x: (x["match_count"], x.get("year") or 0), reverse=True)
     return results
 
 

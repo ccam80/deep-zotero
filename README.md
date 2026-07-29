@@ -206,9 +206,11 @@ Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `c
 
 ### Boolean search
 
-**`search_boolean`** — Exact word matching via Zotero's native full-text index. Returns papers (not passages) matching AND/OR word queries. No phrase search, no stemming.
+**`search_boolean`** — Exact word matching over the indexed chunk text. Matching is case-insensitive and whole-word (`heart` matches `Heart`, not `hearth`). Returns papers with `match_count` and `matched_pages`, most matches first; use `search_papers` or `get_passage_context` for the passage itself. No phrase search, no stemming.
 
-Parameters: `query` (space-separated terms), `operator` (AND/OR), `year_min`, `year_max`.
+Searches the same chunks as `search_papers`, so every result can be followed up there. Documents that have not been indexed are not searchable — run `deep-zotero-index` for anything missing.
+
+Parameters: `query` (space-separated terms), `operator` (AND/OR), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`.
 
 ### Context expansion
 

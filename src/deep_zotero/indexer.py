@@ -550,7 +550,3 @@ class Indexer:
             "avg_chunks_per_doc": round(total_chunks / len(doc_ids), 1) if doc_ids else 0,
         }
 
-    def get_library_diagnostics(self) -> dict:
-        """Delegate to ZoteroClient for library-wide diagnostics."""
-        return self.zotero.get_library_diagnostics()
-
