@@ -96,8 +96,9 @@ def main() -> None:
         print("dry run, nothing written")
         return
 
-    if git("status", "--porcelain"):
-        sys.exit("working tree is dirty; commit or set aside changes first")
+    # Only tracked changes matter; the release commit adds two known paths.
+    if git("status", "--porcelain", "--untracked-files=no"):
+        sys.exit("tracked files have uncommitted changes; commit them first")
 
     write_versions(new)
     git("add", str(PYPROJECT.relative_to(ROOT)), str(MANIFEST.relative_to(ROOT)))
