@@ -28,13 +28,9 @@ All tools are provided by the `deep-zotero` MCP server:
 | `search_papers` | Passage-level search over text, tables and figures. Returns chunks with surrounding context, metadata, relevance_score, and composite_score. Every result names its `chunk_type`. |
 | `search_topic` | Find N most relevant papers for a topic, deduplicated by document. Returns per-paper average/best composite scores, best passage, and citation key. |
 
-`search_papers` covers all three content types. Narrow with `chunk_types`:
+`search_papers` covers all three content types; narrow with `chunk_types=["text"]`, `["table"]` or `["figure"]`.
 
-| `chunk_types` | Returns |
-|------|---------|
-| `["table"]` | Table markdown in `passage`, plus `table_index`, `caption`, `num_rows`, `num_cols`. |
-| `["figure"]` | Caption in `passage`, plus `figure_index`, `caption`, `image_path` (the extracted PNG). |
-| `["text"]` | Body prose only. |
+A table result carries its markdown in `passage` plus `table_index`, `caption`, `num_rows` and `num_cols`. A figure result carries its caption in `passage` plus `figure_index`, `caption` and `image_path`, the extracted PNG.
 
 ### Exact Word Matching
 
