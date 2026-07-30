@@ -1,3 +1,7 @@
+---
+description: Set up deep-zotero from a clone - venv, config, API keys, Tesseract, MCP registration.
+---
+
 # Install / set up deep-zotero (agent runbook)
 
 You are an AI coding agent setting up this repository on the user's machine. Work

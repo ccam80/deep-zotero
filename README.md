@@ -16,7 +16,27 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 - **Zotero 8** with PDFs in `storage/`. Citation keys are read from Zotero's native `citationKey` field, which earlier versions do not have — on Zotero 7 every citation key comes back empty.
 - **Tesseract-OCR** — only needed to OCR scanned / image-only PDF pages. Install [Tesseract](https://github.com/tesseract-ocr/tesseract) with the language data you need, then set the `TESSDATA_PREFIX` environment variable to its `tessdata` directory (e.g. `C:\Program Files\Tesseract-OCR\tessdata`). PyMuPDF locates the OCR data via that variable; without it, scanned pages are skipped (`"OCR disabled because Tesseract language data not found."`). Text-based PDFs do not need Tesseract.
 
-## Install
+## Install as a Claude Code plugin
+
+Requires [uv](https://docs.astral.sh/uv/) on `PATH`. The repo is its own marketplace:
+
+```
+/plugin marketplace add ccam80/deep-zotero
+/plugin install deep-zotero
+```
+
+The server launches through `uvx`, which builds and caches the package on first run. Set these in the environment Claude Code starts from:
+
+| Variable | Purpose |
+|---|---|
+| `DEEP_ZOTERO_DATA_DIR` | Zotero data directory, holding `zotero.sqlite` and `storage/` |
+| `DEEP_ZOTERO_CHROMA_PATH` | Where the index lives |
+| `GEMINI_API_KEY` | Embeddings |
+| `ANTHROPIC_API_KEY` | Vision table extraction during indexing |
+
+Index the library once before searching: `deep-zotero-index -v`.
+
+## Install from source
 
 ```bash
 python -m venv .venv

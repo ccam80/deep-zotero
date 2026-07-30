@@ -27,3 +27,7 @@ vision_costs.json
 # Agent QA workspace (generated, not checked in)
 tests/agent_qa/workspace/
 NUL
+
+# Build artifacts
+build/
+dist/
