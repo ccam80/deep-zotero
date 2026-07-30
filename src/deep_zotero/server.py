@@ -473,9 +473,12 @@ def search_papers(
             where_document=where_document,
         )
     else:
-        # No query: exhaustive lexical retrieval, no embedding call
+        # No query: exhaustive lexical retrieval, no embedding call. Filter and
+        # truncate before expanding, which costs a query per chunk kept.
+        hits = _get_store().match_chunks(required_terms, terms_operator, where=filters)
+        hits = _apply_text_filters(hits, author, tag, collection)
         results = retriever.expand(
-            _get_store().match_chunks(required_terms, terms_operator, where=filters),
+            hits[:min(top_k, 50)],
             context_window=min(context_chunks, 3),
         )
 

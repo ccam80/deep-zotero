@@ -433,11 +433,7 @@ class VectorStore:
         where: dict | None = None,
         batch_size: int = METADATA_SCAN_BATCH,
     ) -> list[StoredChunk]:
-        """Return every chunk whose text contains the given words, unscored.
-
-        Paged because hydrating metadata for tens of thousands of rows in a
-        single get() exceeds SQLite's variable limit.
-        """
+        """Return every chunk whose text contains the given words, unscored, read in pages."""
         if not words:
             return []
 

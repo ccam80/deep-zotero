@@ -243,6 +243,30 @@ class TestPaging:
             many.match_chunks(["telemetry"], "AND", batch_size=2)
         )
 
+    def test_context_expanded_only_for_returned_hits(self, many, mock_config, monkeypatch):
+        """Expansion costs a query per chunk, so it must follow truncation."""
+        from deep_zotero import server as srv
+        from deep_zotero.reranker import Reranker
+        from deep_zotero.retriever import Retriever
+
+        calls = []
+        real = many.get_adjacent_chunks
+
+        def counting(*a, **k):
+            calls.append(a)
+            return real(*a, **k)
+
+        monkeypatch.setattr(many, "get_adjacent_chunks", counting)
+        monkeypatch.setattr(srv, "_config", mock_config)
+        monkeypatch.setattr(srv, "_store", many)
+        monkeypatch.setattr(srv, "_retriever", Retriever(many))
+        monkeypatch.setattr(srv, "_reranker", Reranker(alpha=mock_config.rerank_alpha))
+
+        results = srv.search_papers(required_terms=["telemetry"], top_k=3,
+                                   context_chunks=1)
+        assert len(results) == 3
+        assert len(calls) <= 3, f"expanded {len(calls)} of 23 matches"
+
 
 @pytest.fixture
 def wired(store: VectorStore, mock_config, monkeypatch):
