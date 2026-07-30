@@ -8,6 +8,7 @@ from collections import defaultdict
 from dataclasses import replace
 from fastmcp import FastMCP
 from . import index_stats
+from . import __version__
 from .config import Config
 from .embedder import Embedder
 from .vector_store import VectorStore
@@ -97,7 +98,7 @@ def _install_parent_death_watchdog() -> None:
 # Force-exit if the parent (Claude Code) connection is lost.
 _install_parent_death_watchdog()
 
-mcp = FastMCP("deep-zotero")
+mcp = FastMCP("deep-zotero", version=__version__)
 
 # Lazy initialization
 _retriever = None
