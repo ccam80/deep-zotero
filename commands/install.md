@@ -1,168 +1,86 @@
 ---
-description: Set up deep-zotero from a clone - venv, config, API keys, Tesseract, MCP registration.
+description: Set up deep-zotero after installing the plugin - environment variables, Tesseract, first index.
 ---
 
-# Install / set up deep-zotero (agent runbook)
+# Set up deep-zotero (agent runbook)
 
-You are an AI coding agent setting up this repository on the user's machine. Work
-through the steps **in order**. After each step, verify it before moving on. The
-user should only ever have to paste API keys and confirm system changes — **you**
-do all file creation and JSON editing; never ask the user to hand-edit JSON.
+You are an AI coding agent setting up an installed deep-zotero plugin.
 
-Conventions used below:
-- `PYEXE` = the venv interpreter. Windows: `.venv\Scripts\python.exe`. macOS/Linux:
-  `.venv/bin/python`. Detect the OS and use the right one throughout.
-- Run commands from the repo root.
+Work through the steps in order and verify each before moving on. The user should only have to paste API keys and confirm system changes.
 
----
+## 1. Preconditions
 
-## 0. Preconditions
+Confirm:
+- `uv` is on `PATH` (`uv --version`). If missing, point the user at https://docs.astral.sh/uv/ and stop.
+- The plugin is installed and its tools are visible. If not, `/plugin install deep-zotero` and restart Claude Code.
+- Zotero 8 with PDFs in `storage/`. On Zotero 7 every citation key comes back empty.
 
-1. Confirm Python 3.10+ is available: `python --version` (try `python3` if `python`
-   is missing). If it's older than 3.10, stop and tell the user to install a newer
-   Python.
-2. Confirm you're in the repo root: `config.example.json` and `pyproject.toml`
-   should both exist. If not, `cd` into the clone.
+Locate the Zotero data directory, which contains `zotero.sqlite` and `storage/`. The default is `~/Zotero`. Confirm the path exists.
 
-## 1. Create the virtual environment
+## 2. API keys
 
-```bash
-python -m venv .venv
+Ask the user for the keys they have:
+- **Gemini** (embeddings, required by default) — https://aistudio.google.com/app/apikey
+- **Anthropic** (vision table extraction) — https://console.anthropic.com/ . Without it, text and figures still index but **no tables are extracted**.
+
+Do not echo the full keys back in your messages.
+
+## 3. Environment variables
+
+The server reads its whole configuration from the environment Claude Code starts from.
+
+| Variable | Value |
+|---|---|
+| `DEEP_ZOTERO_DATA_DIR` | the Zotero data directory from step 1 |
+| `DEEP_ZOTERO_CHROMA_PATH` | where the index should live, e.g. `~/.local/share/deep-zotero/chroma` |
+| `GEMINI_API_KEY` | from step 2 |
+| `ANTHROPIC_API_KEY` | from step 2, omit if the user opted out of vision |
+
+Set them for the user's account, then have them restart Claude Code — a newly set persistent variable only reaches new processes.
+
+Windows (PowerShell), per variable:
+
+```powershell
+[Environment]::SetEnvironmentVariable("DEEP_ZOTERO_DATA_DIR", "C:\Users\you\Zotero", "User")
 ```
 
-Verify `PYEXE` exists (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python`
-elsewhere).
+macOS/Linux: add `export` lines to `~/.zshrc` or `~/.bashrc`.
 
-## 2. Install the package (editable, with vision extras)
+To supply settings beyond these four, point `DEEP_ZOTERO_CONFIG` at a JSON config file. It takes precedence over the environment wherever both supply a setting.
 
-```bash
-"PYEXE" -m pip install -e ".[vision]"
-```
+## 4. Tesseract-OCR (only if the user has scanned PDFs)
 
-This pulls in the full pipeline plus the Anthropic/OpenAI vision deps. It may take a
-few minutes. Verify with:
+Text-based PDFs do not need this. With no scanned papers, skip to step 5 and note that scanned pages are silently skipped.
 
-```bash
-"PYEXE" -c "import deep_zotero; from deep_zotero import server; print('import OK')"
-```
-
-## 3. Tesseract-OCR (only needed for scanned / image-only PDFs)
-
-Text-based PDFs do **not** need this — if the user has no scanned papers, you may
-skip to step 4 and note that scanned pages will be silently skipped.
-
-1. Check whether Tesseract is already installed:
-   - Windows: look for `C:\Program Files\Tesseract-OCR\tesseract.exe` and
-     `...\tessdata\eng.traineddata`.
-   - macOS/Linux: `which tesseract` and locate its `tessdata` dir (often
-     `/usr/share/tesseract-ocr/*/tessdata` or `/opt/homebrew/share/tessdata`).
-2. If missing, guide the user to install it (do not install system software without
-   consent):
-   - Windows: `winget install UB-Mannheim.TesseractOCR` (or the UB-Mannheim
-     installer). Include the English language data.
+1. Check whether Tesseract is installed:
+   - Windows: look for `C:\Program Files\Tesseract-OCR\tesseract.exe` and `...\tessdata\eng.traineddata`.
+   - macOS/Linux: `which tesseract`, then locate its `tessdata` directory, often `/usr/share/tesseract-ocr/*/tessdata` or `/opt/homebrew/share/tessdata`.
+2. If missing, guide the user to install it. Do not install system software without consent:
+   - Windows: `winget install UB-Mannheim.TesseractOCR`, including English data.
    - macOS: `brew install tesseract`.
    - Debian/Ubuntu: `sudo apt install tesseract-ocr`.
-3. PyMuPDF finds the language data via the **`TESSDATA_PREFIX`** environment
-   variable pointing at the `tessdata` directory. This is a persistent system
-   change, so **confirm with the user before setting it**, then set it for their
-   user account:
-   - Windows (PowerShell):
-     `[Environment]::SetEnvironmentVariable("TESSDATA_PREFIX", "C:\Program Files\Tesseract-OCR\tessdata", "User")`
-   - macOS/Linux: add `export TESSDATA_PREFIX=/path/to/tessdata` to their shell
-     profile (`~/.zshrc` / `~/.bashrc`).
-   Note: a newly set persistent variable only reaches **new** processes — the user
-   must restart their shell / MCP client for it to take effect.
+3. PyMuPDF finds the language data through **`TESSDATA_PREFIX`**, pointing at the `tessdata` directory. This is a persistent system change, so **confirm with the user before setting it**, then set it alongside the step 3 variables.
 
-Verify (in a shell that has the variable set):
+Without `TESSDATA_PREFIX`, scanned pages report `"OCR disabled because Tesseract language data not found."`
 
-```bash
-TESSDATA_PREFIX="<tessdata path>" "PYEXE" -m pytest -q tests/test_ocr.py
-```
+## 5. Index the library (first real run — spends money)
 
-It should pass. Without `TESSDATA_PREFIX`, that test fails with
-`"OCR disabled because Tesseract language data not found."`
+Nothing is searchable until this runs. It makes real Gemini and Anthropic calls, so **confirm with the user first** — vision is roughly $0.016 per table through the Haiku batch API.
 
-## 4. API keys
-
-Ask the user for the keys they have. Both are optional but recommended:
-- **Gemini** (embeddings) — https://aistudio.google.com/app/apikey . If the user
-  doesn't want to use Gemini, set `embedding_provider` to `"local"` instead (lower
-  quality, no key).
-- **Anthropic** (vision table extraction) — https://console.anthropic.com/ . Without
-  it, tables fall back to PyMuPDF heuristics.
-
-Collect the key strings from the user; you will write them into `config.json` in the
-next step. Do not echo the full keys back in your messages.
-
-## 5. Create config.json
-
-```bash
-cp config.example.json config.json
-```
-
-Then **edit `config.json` yourself** (it's gitignored, so keys are never committed):
-- Insert the user's `gemini_api_key` and `anthropic_api_key` (or set
-  `"embedding_provider": "local"` / `"vision_enabled": false` if they opted out).
-- Set `zotero_data_dir` to the user's Zotero data directory if it isn't the default
-  `~/Zotero` (it contains `zotero.sqlite` and `storage/`). Confirm the path exists.
-- Leave everything else at the example defaults unless the user asks otherwise.
-
-Verify the config loads and validates:
-
-```bash
-"PYEXE" -c "from deep_zotero.config import Config; c=Config.load(); e=c.validate(); print('config path:', Config.default_config_path()); print('errors:', e or 'none')"
-```
-
-Resolve any validation errors before continuing (missing Zotero DB, missing required
-key, etc.). Note: validation only checks a key is *present*, not that it's valid — a
-real call in step 8 is the true test.
-
-## 6. Register the MCP server
-
-The repo is its own plugin, so load it directly:
-
-```bash
-claude --plugin-dir <repo root>
-```
-
-Confirm the tools appear.
-
-Tell the user to set `DEEP_ZOTERO_DATA_DIR`, `DEEP_ZOTERO_CHROMA_PATH`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` where Claude Code starts.
-
-## 7. Verify the build
-
-Run the suite (free — no API calls):
-
-```bash
-"PYEXE" -m pytest -q
-```
-
-Expected: the large majority pass. Known non-blocking failures even on a correct
-setup are the vision/quality tests under `test_table_quality.py`,
-`test_extraction_completeness.py`, `test_pdf_processor.py` (the `*_quality` ones),
-and `test_extraction_integration.py` — their fixture extracts without a VisionAPI,
-so they report 0 tables regardless of keys. Don't chase those here; step 8 is the
-real end-to-end check. `test_ocr.py` passes only if `TESSDATA_PREFIX` is set in the
-shell.
-
-## 8. Index the library (first real run — spends tokens)
-
-This is the true end-to-end validation: it makes real Gemini + Anthropic calls, so
-**confirm with the user first** (vision is ~\$0.016/table via the Haiku batch API).
 Start small:
 
 ```bash
-"PYEXE" -m deep_zotero.cli --limit 5 -v
+uvx --from "deep-zotero[vision]" deep-zotero-index --limit 5 -v
 ```
 
-(The installed `deep-zotero-index` console script is equivalent if the venv is on
-PATH.) Confirm it reads the Zotero DB, extracts, embeds, and writes to ChromaDB
-without errors. Then offer a full index (`"PYEXE" -m deep_zotero.cli -v`) or let the
-user trigger it later via the `index_library` MCP tool.
+Confirm it reads the Zotero DB, extracts, embeds, and writes to ChromaDB without errors. Then offer a full index by dropping `--limit`, or let the user trigger it later through the `index_library` MCP tool.
+
+## 6. Verify end to end
+
+Call `get_index_stats` through the MCP server. It should report the documents and chunks just indexed. Then call `search_papers` with a topic you saw in the indexed titles and confirm a passage comes back with a citation key.
+
+If the tools are missing, the server did not start. Check that `uv` is on `PATH` and that the step 3 variables are visible to Claude Code's process.
 
 ## Done
 
-Summarize for the user: venv ready, package installed, Tesseract status, where
-`config.json` lives (repo root, gitignored), and the reminder to restart their
-MCP client. Point them at the README for the full configuration and tool
-reference.
+Summarize for the user: which variables were set and where, Tesseract status, how many documents were indexed, and that a fuller index can run later. Point them at the README for the configuration and tool reference.
