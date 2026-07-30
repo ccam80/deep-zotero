@@ -113,28 +113,15 @@ You can also trigger indexing from the MCP client via the `index_library` tool.
 
 ### 4. Register the MCP server
 
-The repo ships `.mcp.json.example` as a template (the real `.mcp.json` is gitignored because the interpreter path is machine-specific). Copy it and set the `command` to your venv's Python:
+Load the working tree as a plugin:
 
 ```bash
-cp .mcp.json.example .mcp.json
+claude --plugin-dir /path/to/zotero_citation_mcp
 ```
-
-```json
-{
-    "mcpServers": {
-        "deep-zotero": {
-            "command": "C:\\path\\to\\zotero_citation_mcp\\.venv\\Scripts\\python.exe",
-            "args": ["-m", "deep_zotero.server"]
-        }
-    }
-}
-```
-
-On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python`. Claude Code auto-loads a project-scoped `.mcp.json` from the repo root; alternatively, put the same `mcpServers` block in `~/.claude/settings.json`.
 
 If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
-Restart Claude Code. All 10 tools will be available.
+All 10 tools will be available.
 
 ---
 

@@ -1,0 +1,47 @@
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Tag, pyproject and plugin manifest must agree
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import json, pathlib, sys, tomllib
+
+          tag = sys.argv[1].removeprefix("v")
+          project = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          plugin = json.loads(
+              pathlib.Path(".claude-plugin/plugin.json").read_text(encoding="utf-8")
+          )["version"]
+
+          print(f"tag={tag} pyproject={project} plugin={plugin}")
+          if len({tag, project, plugin}) != 1:
+              sys.exit("versions disagree")
+          PY
+
+      - run: uv build
+
+      - name: Confirm the wheel imports and exposes its entry points
+        run: |
+          uv venv /tmp/check
+          uv pip install --python /tmp/check/bin/python dist/*.whl
+          /tmp/check/bin/python -c "import deep_zotero; print(deep_zotero.__name__)"
+          test -x /tmp/check/bin/deep-zotero
+          test -x /tmp/check/bin/deep-zotero-index
+
+      - run: uv publish --check-url https://pypi.org/simple/deep-zotero/

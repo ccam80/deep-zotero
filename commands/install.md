@@ -119,17 +119,16 @@ real call in step 8 is the true test.
 
 ## 6. Register the MCP server
 
+The repo is its own plugin, so load it directly:
+
 ```bash
-cp .mcp.json.example .mcp.json
+claude --plugin-dir <repo root>
 ```
 
-Then **edit `.mcp.json` yourself**: set `mcpServers.deep-zotero.command` to the
-**absolute** path of `PYEXE` (e.g. `C:\\...\\zotero_citation_mcp\\.venv\\Scripts\\python.exe`,
-with escaped backslashes on Windows). `.mcp.json` is gitignored, so the
-machine-specific path stays local.
-
-Tell the user to **restart Claude Code / their MCP client** so it picks up the
-server. Claude Code auto-loads a project-scoped `.mcp.json` from the repo root.
+Confirm the tools appear. `.claude-plugin/plugin.json` declares the server and
+launches it through `uvx`, which reads `DEEP_ZOTERO_DATA_DIR`,
+`DEEP_ZOTERO_CHROMA_PATH`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` from the
+environment. Tell the user those must be set where Claude Code starts.
 
 ## 7. Verify the build
 
@@ -165,6 +164,6 @@ user trigger it later via the `index_library` MCP tool.
 ## Done
 
 Summarize for the user: venv ready, package installed, Tesseract status, where
-`config.json` and `.mcp.json` live (repo root, gitignored), and the reminder to
-restart their MCP client. Point them at the README for the full configuration and
-tool reference.
+`config.json` lives (repo root, gitignored), and the reminder to restart their
+MCP client. Point them at the README for the full configuration and tool
+reference.
