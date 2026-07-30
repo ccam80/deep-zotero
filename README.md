@@ -31,26 +31,15 @@ In the environment Claude Code starts from, set `DEEP_ZOTERO_DATA_DIR` (the Zote
 
 Index the library once before searching: `deep-zotero-index -v`.
 
-## Install from source
-
-```bash
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e ".[vision]"
-```
-
-The `vision` extra pulls in the Anthropic and OpenAI clients. Without it (`pip install -e .`) the pipeline still indexes text and figures, but no tables.
-
-`commands/install.md` is a step-by-step setup runbook written for a coding agent — point Claude Code at it to have the venv, config, Tesseract, and MCP registration set up for you.
+`/deep-zotero:install` walks a coding agent through the whole setup: variables, Tesseract, and the first index.
 
 ## Setup
 
 ### 1. Configuration
 
-```bash
-cp config.example.json config.json
-```
+The four environment variables above are the whole configuration. Every other setting has a sensible default.
 
-Edit `config.json` (lives in the repo root, next to `config.example.json`; gitignored so your keys are never committed):
+To override more than those four, write a JSON config and point `DEEP_ZOTERO_CONFIG` at it (or pass `--config PATH` to the CLI):
 
 ```json
 {
@@ -61,9 +50,7 @@ Edit `config.json` (lives in the repo root, next to `config.example.json`; gitig
 }
 ```
 
-All other fields have sensible defaults. You can also set `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` as environment variables instead. To load the config from a different location, point the `DEEP_ZOTERO_CONFIG` environment variable at it, or pass `--config PATH` to the CLI.
-
-`config.json` is optional. Installed from a wheel rather than a clone there is no repo root to hold one, so the two path settings also read `DEEP_ZOTERO_DATA_DIR` and `DEEP_ZOTERO_CHROMA_PATH` from the environment. That lets a launcher supply every setting without writing a config file. A `config.json` still takes precedence over the environment wherever both are present.
+A config file takes precedence over the environment wherever both supply a setting. See [Configuration reference](#configuration-reference) for every field.
 
 ### 2. API keys
 
@@ -111,17 +98,13 @@ The indexer is incremental — it only processes items not already in the index.
 
 You can also trigger indexing from the MCP client via the `index_library` tool.
 
-### 4. Register the MCP server
+### 4. Check it works
 
-Load the working tree as a plugin:
+Call `get_index_stats` from Claude Code. It should report the documents and chunks just indexed.
 
-```bash
-claude --plugin-dir /path/to/zotero_citation_mcp
-```
+If the tools are missing, the server did not start: confirm `uv` is on `PATH` and that the environment variables are visible to Claude Code's process.
 
-If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
-
-All 10 tools will be available.
+For scanned-page OCR, `TESSDATA_PREFIX` (see [Requirements](#requirements)) must be set in that same environment.
 
 ---
 
