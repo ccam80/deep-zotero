@@ -212,6 +212,38 @@ class TestFiltersAndEdgeCases:
         assert hits[0].metadata["page_num"] == 1
 
 
+class TestPaging:
+    """Chroma cannot hydrate metadata for a large result set in one get()."""
+
+    @pytest.fixture
+    def many(self, temp_db_path: Path) -> VectorStore:
+        s = VectorStore(temp_db_path, _embedder())
+        s.add_chunks(
+            "BULK001",
+            {"title": "Bulk", "authors": "A", "year": 2020},
+            [_chunk(i, f"chunk {i} mentions telemetry") for i in range(23)],
+        )
+        return s
+
+    def test_every_page_is_returned(self, many: VectorStore):
+        hits = many.match_chunks(["telemetry"], "AND", batch_size=5)
+        assert len(hits) == 23
+
+    def test_paging_does_not_duplicate(self, many: VectorStore):
+        hits = many.match_chunks(["telemetry"], "AND", batch_size=5)
+        assert len({h.id for h in hits}) == 23
+
+    def test_exact_multiple_of_batch_size_terminates(self, many: VectorStore):
+        """A final full page must be followed by an empty one, not an infinite loop."""
+        hits = many.match_chunks(["telemetry"], "AND", batch_size=23)
+        assert len(hits) == 23
+
+    def test_unpaged_default_matches_paged(self, many: VectorStore):
+        assert len(many.match_chunks(["telemetry"], "AND")) == len(
+            many.match_chunks(["telemetry"], "AND", batch_size=2)
+        )
+
+
 @pytest.fixture
 def wired(store: VectorStore, mock_config, monkeypatch):
     """search_papers wired to the fixture store, bypassing lazy init."""

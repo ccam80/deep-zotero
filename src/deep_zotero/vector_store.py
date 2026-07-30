@@ -431,29 +431,41 @@ class VectorStore:
         words: list[str],
         operator: str = "AND",
         where: dict | None = None,
+        batch_size: int = METADATA_SCAN_BATCH,
     ) -> list[StoredChunk]:
-        """Return every chunk whose text contains the given words.
+        """Return every chunk whose text contains the given words, unscored.
 
-        Exact word matching over indexed chunk text -- no embeddings and no
-        ranking, so results carry no score. ``where`` is an optional Chroma
-        metadata filter applied alongside the text match.
+        Paged because hydrating metadata for tens of thousands of rows in a
+        single get() exceeds SQLite's variable limit.
         """
         if not words:
             return []
 
-        results = self.collection.get(
-            where=where or None,
-            where_document=self.build_word_filter(words, operator),
-            include=["documents", "metadatas"],
-        )
-        return [
-            StoredChunk(id=cid, text=doc, metadata=meta)
-            for cid, doc, meta in zip(
-                results.get("ids") or [],
-                results.get("documents") or [],
-                results.get("metadatas") or [],
+        word_filter = self.build_word_filter(words, operator)
+        chunks: list[StoredChunk] = []
+        offset = 0
+        while True:
+            batch = self.collection.get(
+                where=where or None,
+                where_document=word_filter,
+                include=["documents", "metadatas"],
+                limit=batch_size,
+                offset=offset,
             )
-        ]
+            ids = batch.get("ids") or []
+            if not ids:
+                return chunks
+            chunks.extend(
+                StoredChunk(id=cid, text=doc, metadata=meta)
+                for cid, doc, meta in zip(
+                    ids,
+                    batch.get("documents") or [],
+                    batch.get("metadatas") or [],
+                )
+            )
+            if len(ids) < batch_size:
+                return chunks
+            offset += len(ids)
 
     def iter_metadatas(self, batch_size: int = METADATA_SCAN_BATCH) -> Iterator[dict]:
         """Yield the metadata of every chunk in the collection, one page at a time."""
