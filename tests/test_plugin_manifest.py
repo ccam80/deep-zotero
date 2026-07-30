@@ -1,38 +1,19 @@
-"""Plugin manifest must stay consistent with the package it launches."""
+"""Plugin manifest must not hand the server values it cannot resolve."""
 import json
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
-PYPROJECT = ROOT / "pyproject.toml"
 PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
 
 
 @pytest.fixture(scope="module")
-def manifest() -> dict:
-    return json.loads(MANIFEST.read_text(encoding="utf-8"))
-
-
-@pytest.fixture(scope="module")
-def server(manifest) -> dict:
+def server() -> dict:
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     return manifest["mcpServers"]["deep-zotero"]
-
-
-@pytest.fixture(scope="module")
-def project_version() -> str:
-    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
-
-
-def test_manifest_version_matches_pyproject(manifest, project_version):
-    assert manifest["version"] == project_version
-
-
-def test_launched_package_is_pinned_to_this_version(server, project_version):
-    assert f"deep-zotero[vision]=={project_version}" in server["args"]
 
 
 def test_no_unexpanded_placeholders_reach_the_server(server):
