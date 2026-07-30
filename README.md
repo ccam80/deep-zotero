@@ -273,7 +273,7 @@ Requires the document to have a DOI in Zotero.
 
 **`index_library`** — Trigger indexing from the MCP client. Parameters: `force_reindex`, `limit`, `item_key`, `title_pattern`, `no_vision`.
 
-**`get_index_stats`** — Document/chunk/table/figure counts, section coverage, journal coverage.
+**`get_index_stats`** — Document/chunk/table/figure counts, section coverage, journal coverage. Counts cover the entire collection. The result is cached in `index_stats.sqlite` next to the Chroma database and refreshed at the end of every indexing run; pass `refresh: true` to force a recount.
 
 **`get_reranking_config`** — Current reranking weights and valid override values.
 
