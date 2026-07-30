@@ -279,7 +279,8 @@ class VectorStore:
         self,
         query: str,
         top_k: int = 10,
-        filters: dict | None = None
+        filters: dict | None = None,
+        where_document: dict | None = None,
     ) -> list[StoredChunk]:
         """
         Search for similar chunks.
@@ -288,6 +289,9 @@ class VectorStore:
             query: Search query text
             top_k: Number of results to return
             filters: Optional ChromaDB where clause
+            where_document: Optional ChromaDB where_document clause. Applied
+                inside the similarity query, so it constrains what is searched
+                rather than filtering what was already returned.
 
         Returns:
             List of StoredChunk objects sorted by similarity
@@ -299,6 +303,7 @@ class VectorStore:
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=filters,
+            where_document=where_document or None,
             include=["documents", "metadatas", "distances"]
         )
 
@@ -356,95 +361,6 @@ class VectorStore:
         """Remove all chunks for a document."""
         self.collection.delete(where={"doc_id": {"$eq": doc_id}})
 
-    def refresh_citation_keys(
-        self,
-        citation_keys: dict[str, str],
-        dry_run: bool = True,
-    ) -> dict:
-        """Backfill citation-key metadata without regenerating vectors.
-
-        Every stored record for each indexed document is examined, including
-        text, table, and figure chunks.  In dry-run mode the returned counts
-        describe the mutation that would occur, but Chroma is not changed.
-        Documents with no non-empty source key are reported as missing and are
-        left untouched.
-        """
-        report = {
-            "dry_run": dry_run,
-            "documents_examined": 0,
-            "documents_changed": 0,
-            "documents_unchanged": 0,
-            "documents_missing": 0,
-            "documents_failed": 0,
-            "records_examined": 0,
-            "records_changed": 0,
-            "records_unchanged": 0,
-            "records_missing": 0,
-            "records_failed": 0,
-            "failures": [],
-        }
-
-        for doc_id in sorted(self.get_indexed_doc_ids()):
-            report["documents_examined"] += 1
-            ids = []
-            pending_change_count = 0
-            try:
-                stored = self.collection.get(
-                    where={"doc_id": {"$eq": doc_id}},
-                    include=["metadatas"],
-                )
-                ids = stored.get("ids") or []
-                metadatas = stored.get("metadatas") or []
-                if len(ids) != len(metadatas):
-                    raise ValueError(
-                        f"Chroma returned {len(ids)} IDs but {len(metadatas)} metadata records"
-                    )
-
-                record_count = len(ids)
-                report["records_examined"] += record_count
-                citation_key = (citation_keys.get(doc_id) or "").strip()
-                if not citation_key:
-                    report["documents_missing"] += 1
-                    report["records_missing"] += record_count
-                    continue
-
-                changed_indices = [
-                    i for i, metadata in enumerate(metadatas)
-                    if metadata.get("citation_key", "") != citation_key
-                ]
-                changed_count = len(changed_indices)
-                pending_change_count = changed_count
-                unchanged_count = record_count - changed_count
-                report["records_unchanged"] += unchanged_count
-
-                if not changed_indices:
-                    report["documents_unchanged"] += 1
-                    continue
-
-                if not dry_run:
-                    changed_ids = [ids[i] for i in changed_indices]
-                    changed_metadatas = []
-                    for i in changed_indices:
-                        updated = dict(metadatas[i])
-                        updated["citation_key"] = citation_key
-                        changed_metadatas.append(updated)
-                    self.collection.update(
-                        ids=changed_ids,
-                        metadatas=changed_metadatas,
-                    )
-
-                report["documents_changed"] += 1
-                report["records_changed"] += changed_count
-            except Exception as exc:
-                report["documents_failed"] += 1
-                report["records_failed"] += pending_change_count
-                report["failures"].append({
-                    "doc_id": doc_id,
-                    "error": f"{type(exc).__name__}: {exc}",
-                })
-
-        return report
-
     def get_indexed_doc_ids(self) -> set[str]:
         """Get set of all indexed document IDs.
 
@@ -496,6 +412,56 @@ class VectorStore:
         if results["metadatas"]:
             return results["metadatas"][0]
         return None
+
+    @staticmethod
+    def build_word_filter(words: list[str], operator: str = "AND") -> dict:
+        """Build a Chroma ``where_document`` clause matching whole words.
+
+        Each term becomes a case-insensitive word-boundary regex, so "heart"
+        matches "Heart" but not "hearth". Chroma rejects ``$and``/``$or`` with
+        fewer than two operands, so a single term is returned bare.
+        """
+        clauses = [{"$regex": rf"(?i)\b{re.escape(w)}\b"} for w in words]
+        if len(clauses) == 1:
+            return clauses[0]
+        return {"$or" if operator.upper() == "OR" else "$and": clauses}
+
+    def match_chunks(
+        self,
+        words: list[str],
+        operator: str = "AND",
+        where: dict | None = None,
+        batch_size: int = METADATA_SCAN_BATCH,
+    ) -> list[StoredChunk]:
+        """Return every chunk whose text contains the given words, unscored, read in pages."""
+        if not words:
+            return []
+
+        word_filter = self.build_word_filter(words, operator)
+        chunks: list[StoredChunk] = []
+        offset = 0
+        while True:
+            batch = self.collection.get(
+                where=where or None,
+                where_document=word_filter,
+                include=["documents", "metadatas"],
+                limit=batch_size,
+                offset=offset,
+            )
+            ids = batch.get("ids") or []
+            if not ids:
+                return chunks
+            chunks.extend(
+                StoredChunk(id=cid, text=doc, metadata=meta)
+                for cid, doc, meta in zip(
+                    ids,
+                    batch.get("documents") or [],
+                    batch.get("metadatas") or [],
+                )
+            )
+            if len(ids) < batch_size:
+                return chunks
+            offset += len(ids)
 
     def iter_metadatas(self, batch_size: int = METADATA_SCAN_BATCH) -> Iterator[dict]:
         """Yield the metadata of every chunk in the collection, one page at a time."""

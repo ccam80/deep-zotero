@@ -1,6 +1,6 @@
 # DeepZotero
 
-Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 13 tools for semantic search, boolean search, table/figure search, context expansion, citation graph lookup, indexing, and cost tracking.
+Semantic search over a Zotero library. PDFs are extracted (text, tables, figures), chunked, embedded, and stored in ChromaDB. An MCP server exposes the index to Claude Code (or any MCP client) as 10 tools for semantic and exact-word search over text, tables and figures, context expansion, citation graph lookup, indexing, and cost tracking.
 
 ## What it extracts
 
@@ -13,7 +13,7 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 - Python 3.10+
 - A [Gemini API key](https://aistudio.google.com/app/apikey) for embeddings (unless using `embedding_provider: "local"`)
 - An [Anthropic API key](https://console.anthropic.com/) for vision-based table extraction (optional but recommended)
-- A Zotero installation with PDFs in `storage/`
+- **Zotero 8** with PDFs in `storage/`. Citation keys are read from Zotero's native `citationKey` field, which earlier versions do not have — on Zotero 7 every citation key comes back empty.
 - **Tesseract-OCR** — only needed to OCR scanned / image-only PDF pages. Install [Tesseract](https://github.com/tesseract-ocr/tesseract) with the language data you need, then set the `TESSDATA_PREFIX` environment variable to its `tessdata` directory (e.g. `C:\Program Files\Tesseract-OCR\tessdata`). PyMuPDF locates the OCR data via that variable; without it, scanned pages are skipped (`"OCR disabled because Tesseract language data not found."`). Text-based PDFs do not need Tesseract.
 
 ## Install
@@ -119,7 +119,7 @@ On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python
 
 If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
-Restart Claude Code. All 13 tools will be available.
+Restart Claude Code. All 10 tools will be available.
 
 ---
 
@@ -190,25 +190,68 @@ Restart Claude Code. All 13 tools will be available.
 
 **`search_papers`** — Passage-level semantic search. Returns matching text with surrounding context, reranked by composite score (similarity × section weight × journal weight). Supports `required_terms` for combining semantic search with exact word matching — each term must appear as a whole word in the passage.
 
-Parameters: `query`, `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `section_weights`, `journal_weights`, `required_terms` (list of words that must appear in passage).
+Parameters: `query` (optional when `required_terms` is given), `top_k` (1-50), `context_chunks` (0-3), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types` (text/figure/table), `sections`, `journal_quartiles`, `section_weights`, `journal_weights`, `required_terms` (words that must appear as whole words), `terms_operator` (AND/OR).
 
 **`search_topic`** — Paper-level topic search, deduplicated by document. Groups chunks by paper, scores by average and best composite relevance.
 
-Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`, `section_weights`, `journal_weights`.
+Parameters: `query`, `num_papers` (1-50), `year_min`, `year_max`, `author`, `tag`, `collection`, `chunk_types`, `sections`, `journal_quartiles`, `section_weights`, `journal_weights`.
 
-**`search_tables`** — Semantic search over table content (headers, cells, captions). Returns tables as markdown.
+### Filtering
 
-Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `collection`, `journal_weights`.
+```python
+search_papers(query="baroreflex sensitivity", author="Olufsen", journal_quartiles=["Q1"])
+search_papers(required_terms=["SDNN"], sections=["results"], year_min=1991, year_max=1995)
+```
 
-**`search_figures`** — Semantic search over figure captions. Returns figure metadata and paths to extracted PNGs.
+| Parameter | Applied | Match |
+|---|---|---|
+| `year_min`, `year_max`, `chunk_types`, `sections`, `journal_quartiles` | during retrieval | exact |
+| `author`, `tag`, `collection` | after retrieval | case-insensitive substring |
+| `section_weights`, `journal_weights` | during reranking, so only with `query` | reorders, excludes nothing |
 
-Parameters: `query`, `top_k` (1-30), `year_min`, `year_max`, `author`, `tag`, `collection`.
+Valid `sections`: `abstract`, `introduction`, `background`, `methods`, `results`, `discussion`, `conclusion`, `references`, `appendix`, `preamble`, `table`, `figure`, `unknown`.
 
-### Boolean search
+Valid `journal_quartiles`: `Q1`, `Q2`, `Q3`, `Q4`, and `unknown` for journals with no quartile.
 
-**`search_boolean`** — Exact word matching via Zotero's native full-text index. Returns papers (not passages) matching AND/OR word queries. No phrase search, no stemming. Restricted to papers in the semantic index, so every result can be passed to `search_papers`.
+### Tables and figures
 
-Parameters: `query` (space-separated terms), `operator` (AND/OR), `year_min`, `year_max`.
+`search_papers` covers text, tables and figures. Every result names its
+`chunk_type`; narrow with `chunk_types`:
+
+```python
+search_papers("impedance measurement", chunk_types=["table"])
+```
+
+Table results add `table_index`, `caption`, `num_rows` and `num_cols`, with the
+table markdown in `passage`. Figure results add `figure_index`, `caption` and
+`image_path` (the extracted PNG), with the caption in `passage`.
+
+Table and figure chunks carry `section` values of `table` and `figure` rather
+than the section they appeared in. Both weigh 1.0 in reranking.
+
+### Exact word matching
+
+`required_terms` lists words that must appear in the passage as whole words,
+case-insensitively — `heart` matches `Heart` but not `hearth`. `terms_operator`
+is `AND` (default) or `OR`.
+
+Terms constrain the search itself, so a passage containing a rare acronym is
+found even when semantic similarity would not rank it:
+
+```python
+search_papers("autonomic regulation", required_terms=["SDNN"])
+```
+
+Omit `query` to retrieve every matching passage in the index, unranked, with no
+embedding call:
+
+```python
+search_papers(required_terms=["propranolol", "SDNN"], terms_operator="AND")
+```
+
+At least one of `query` or `required_terms` is required. `section_weights` and
+`journal_weights` affect ranking only and are ignored when `query` is omitted.
+No phrase search, no stemming.
 
 ### Context expansion
 

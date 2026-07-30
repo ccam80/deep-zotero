@@ -70,8 +70,23 @@ class VectorStoreProtocol(Protocol):
         """Add chunks for a document."""
         ...
 
-    def search(self, query: str, top_k: int = 10, filters: dict | None = None) -> list[StoredChunk]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: dict | None = None,
+        where_document: dict | None = None,
+    ) -> list[StoredChunk]:
         """Search for similar chunks."""
+        ...
+
+    def match_chunks(
+        self,
+        words: list[str],
+        operator: str = "AND",
+        where: dict | None = None,
+    ) -> list[StoredChunk]:
+        """Return every chunk whose text contains the given words."""
         ...
 
     def get_adjacent_chunks(self, doc_id: str, chunk_index: int, window: int = 2) -> list[StoredChunk]:
@@ -80,14 +95,6 @@ class VectorStoreProtocol(Protocol):
 
     def delete_document(self, doc_id: str) -> None:
         """Delete all chunks for a document."""
-        ...
-
-    def refresh_citation_keys(
-        self,
-        citation_keys: dict[str, str],
-        dry_run: bool = True,
-    ) -> dict:
-        """Refresh stored citation-key metadata without re-embedding."""
         ...
 
     def get_indexed_doc_ids(self) -> set[str]:
@@ -107,7 +114,8 @@ class RetrieverProtocol(Protocol):
         query: str,
         top_k: int = 10,
         context_window: int = 1,
-        filters: dict | None = None
+        filters: dict | None = None,
+        where_document: dict | None = None,
     ) -> list[RetrievalResult]:
         """Search and expand context."""
         ...

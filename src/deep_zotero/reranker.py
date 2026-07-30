@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_SECTION_WEIGHTS: dict[str, float] = {
     "results": 1.0,
     "conclusion": 1.0,
-    "table": 0.9,  # Tables are high-value structured content
+    "table": 1.0,  # chunk-type placeholder, not a detected section
+    "figure": 1.0,  # chunk-type placeholder, not a detected section
     "methods": 0.85,
     "abstract": 0.75,
     "background": 0.7,
