@@ -125,10 +125,9 @@ The repo is its own plugin, so load it directly:
 claude --plugin-dir <repo root>
 ```
 
-Confirm the tools appear. `.claude-plugin/plugin.json` declares the server and
-launches it through `uvx`, which reads `DEEP_ZOTERO_DATA_DIR`,
-`DEEP_ZOTERO_CHROMA_PATH`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` from the
-environment. Tell the user those must be set where Claude Code starts.
+Confirm the tools appear.
+
+Tell the user to set `DEEP_ZOTERO_DATA_DIR`, `DEEP_ZOTERO_CHROMA_PATH`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` where Claude Code starts.
 
 ## 7. Verify the build
 
