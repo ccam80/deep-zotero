@@ -23,13 +23,7 @@
         "--from",
         "deep-zotero[vision]==0.2.0",
         "deep-zotero"
-      ],
-      "env": {
-        "DEEP_ZOTERO_DATA_DIR": "${DEEP_ZOTERO_DATA_DIR}",
-        "DEEP_ZOTERO_CHROMA_PATH": "${DEEP_ZOTERO_CHROMA_PATH}",
-        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
-      }
+      ]
     }
   }
 }
