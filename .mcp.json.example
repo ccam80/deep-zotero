@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "deep-zotero": {
-      "command": "C:\\path\\to\\zotero_citation_mcp\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "deep_zotero.server"]
-    }
-  }
-}

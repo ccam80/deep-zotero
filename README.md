@@ -16,7 +16,22 @@ Semantic search over a Zotero library. PDFs are extracted (text, tables, figures
 - **Zotero 8** with PDFs in `storage/`. Citation keys are read from Zotero's native `citationKey` field, which earlier versions do not have — on Zotero 7 every citation key comes back empty.
 - **Tesseract-OCR** — only needed to OCR scanned / image-only PDF pages. Install [Tesseract](https://github.com/tesseract-ocr/tesseract) with the language data you need, then set the `TESSDATA_PREFIX` environment variable to its `tessdata` directory (e.g. `C:\Program Files\Tesseract-OCR\tessdata`). PyMuPDF locates the OCR data via that variable; without it, scanned pages are skipped (`"OCR disabled because Tesseract language data not found."`). Text-based PDFs do not need Tesseract.
 
-## Install
+## Install as a Claude Code plugin
+
+Requires [uv](https://docs.astral.sh/uv/) on `PATH`. The repo is its own marketplace:
+
+```
+/plugin marketplace add ccam80/deep-zotero
+/plugin install deep-zotero
+```
+
+The server launches through `uvx`, which fetches the pinned `deep-zotero` wheel from PyPI and caches it.
+
+In the environment Claude Code starts from, set `DEEP_ZOTERO_DATA_DIR` (the Zotero data directory holding `zotero.sqlite` and `storage/`), `DEEP_ZOTERO_CHROMA_PATH` (where the index lives), `GEMINI_API_KEY` (embeddings) and `ANTHROPIC_API_KEY` (vision table extraction during indexing).
+
+Index the library once before searching: `deep-zotero-index -v`.
+
+## Install from source
 
 ```bash
 python -m venv .venv
@@ -98,28 +113,15 @@ You can also trigger indexing from the MCP client via the `index_library` tool.
 
 ### 4. Register the MCP server
 
-The repo ships `.mcp.json.example` as a template (the real `.mcp.json` is gitignored because the interpreter path is machine-specific). Copy it and set the `command` to your venv's Python:
+Load the working tree as a plugin:
 
 ```bash
-cp .mcp.json.example .mcp.json
+claude --plugin-dir /path/to/zotero_citation_mcp
 ```
-
-```json
-{
-    "mcpServers": {
-        "deep-zotero": {
-            "command": "C:\\path\\to\\zotero_citation_mcp\\.venv\\Scripts\\python.exe",
-            "args": ["-m", "deep_zotero.server"]
-        }
-    }
-}
-```
-
-On macOS/Linux the interpreter is `/path/to/zotero_citation_mcp/.venv/bin/python`. Claude Code auto-loads a project-scoped `.mcp.json` from the repo root; alternatively, put the same `mcpServers` block in `~/.claude/settings.json`.
 
 If you need scanned-page OCR, make sure `TESSDATA_PREFIX` (see [Requirements](#requirements)) is set in the environment the server runs in.
 
-Restart Claude Code. All 10 tools will be available.
+All 10 tools will be available.
 
 ---
 
@@ -365,3 +367,9 @@ temp ChromaDB, and asserts on extraction and retrieval quality. It writes
 
 `--vision-only` re-runs just the vision extraction against an existing
 `_stress_test_debug.db`, optionally narrowed to one paper with `--paper KEY`.
+
+## Releasing
+
+`python tools/release.py --bump patch` (or an explicit `X.Y.Z`) rewrites the version in `pyproject.toml` and `.claude-plugin/plugin.json`, including the pinned package the plugin launches, then commits and tags. It refuses a dirty tree, a non-`main` branch, and an existing tag.
+
+Pushing the tag runs `.github/workflows/publish.yml`, which re-checks that tag, both manifests and the pin agree before publishing to PyPI.

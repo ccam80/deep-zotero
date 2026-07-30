@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "deep-zotero",
+  "description": "Deep semantic search over a local Zotero PDF library, exposed to Claude Code as MCP tools.",
+  "owner": {
+    "name": "Chris Cameron"
+  },
+  "plugins": [
+    {
+      "name": "deep-zotero",
+      "description": "Semantic and exact-word search over an indexed Zotero PDF library. Retrieves passages, tables and figures with citation keys, and traces citation graphs via OpenAlex.",
+      "category": "research",
+      "source": "./",
+      "homepage": "https://github.com/ccam80/deep-zotero",
+      "tags": ["zotero", "semantic-search", "research", "citations", "pdf"]
+    }
+  ]
+}

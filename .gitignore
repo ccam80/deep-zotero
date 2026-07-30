@@ -8,7 +8,7 @@ CLAUDE.md
 
 # Real config holds API keys; config.example.json is the committed template.
 /config.json
-# Machine-specific MCP wiring; .mcp.json.example is the committed template.
+# Machine-specific MCP wiring, if one is added by hand.
 /.mcp.json
 
 .pytest_cache/
@@ -27,3 +27,7 @@ vision_costs.json
 # Agent QA workspace (generated, not checked in)
 tests/agent_qa/workspace/
 NUL
+
+# Build artifacts
+build/
+dist/

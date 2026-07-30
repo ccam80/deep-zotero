@@ -1,0 +1,35 @@
+{
+  "name": "deep-zotero",
+  "version": "0.2.0",
+  "description": "Semantic and exact-word search over an indexed Zotero PDF library. Retrieves passages, tables and figures with citation keys, and traces citation graphs via OpenAlex.",
+  "author": {
+    "name": "Chris Cameron"
+  },
+  "homepage": "https://github.com/ccam80/deep-zotero",
+  "repository": "https://github.com/ccam80/deep-zotero",
+  "license": "MIT",
+  "keywords": [
+    "zotero",
+    "semantic-search",
+    "research",
+    "citations",
+    "chromadb",
+    "pdf"
+  ],
+  "mcpServers": {
+    "deep-zotero": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "deep-zotero[vision]==0.2.0",
+        "deep-zotero"
+      ],
+      "env": {
+        "DEEP_ZOTERO_DATA_DIR": "${DEEP_ZOTERO_DATA_DIR}",
+        "DEEP_ZOTERO_CHROMA_PATH": "${DEEP_ZOTERO_CHROMA_PATH}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  }
+}
