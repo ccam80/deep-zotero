@@ -22,8 +22,8 @@ def repo(tmp_path: Path) -> Path:
         SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "deep-zotero"\nversion = "0.2.0"\n', encoding="utf-8")
-    (tmp_path / ".claude-plugin").mkdir()
-    (tmp_path / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+    (tmp_path / "plugin" / ".claude-plugin").mkdir(parents=True)
+    (tmp_path / "plugin" / ".claude-plugin" / "plugin.json").write_text(json.dumps({
         "name": "deep-zotero",
         "version": "0.2.0",
         "mcpServers": {"deep-zotero": {"command": "uvx", "args": [
@@ -50,12 +50,12 @@ def test_release_commit_touches_only_the_two_version_files(repo):
     (repo / "session_handoff.md").write_text("notes\n", encoding="utf-8")
     assert release(repo).returncode == 0
     touched = git(repo, "show", "--name-only", "--format=", "HEAD").split()
-    assert sorted(touched) == [".claude-plugin/plugin.json", "pyproject.toml"]
+    assert sorted(touched) == ["plugin/.claude-plugin/plugin.json", "pyproject.toml"]
 
 
 def test_bump_rewrites_version_manifest_and_pin(repo):
     assert release(repo).returncode == 0
-    manifest = json.loads((repo / ".claude-plugin/plugin.json").read_text())
+    manifest = json.loads((repo / "plugin/.claude-plugin/plugin.json").read_text())
     assert manifest["version"] == "0.2.1"
     assert "deep-zotero[vision]==0.2.1" in manifest["mcpServers"]["deep-zotero"]["args"]
     assert 'version = "0.2.1"' in (repo / "pyproject.toml").read_text()

@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
-MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
+MANIFEST = ROOT / "plugin" / ".claude-plugin" / "plugin.json"
 PACKAGE = "deep-zotero"
 EXTRA = "vision"
 
