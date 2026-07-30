@@ -16,21 +16,25 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: Tag, pyproject and plugin manifest must agree
+      - name: Tag, pyproject, manifest and pinned package must agree
         run: |
           python3 - "$GITHUB_REF_NAME" <<'PY'
-          import json, pathlib, sys, tomllib
+          import json, pathlib, re, sys, tomllib
 
           tag = sys.argv[1].removeprefix("v")
           project = tomllib.loads(
               pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
           )["project"]["version"]
-          plugin = json.loads(
+          manifest = json.loads(
               pathlib.Path(".claude-plugin/plugin.json").read_text(encoding="utf-8")
-          )["version"]
+          )
+          plugin = manifest["version"]
+          args = manifest["mcpServers"]["deep-zotero"]["args"]
+          pins = [re.fullmatch(r"deep-zotero\[vision\]==(.+)", a) for a in args]
+          pin = next((p.group(1) for p in pins if p), None)
 
-          print(f"tag={tag} pyproject={project} plugin={plugin}")
-          if len({tag, project, plugin}) != 1:
+          print(f"tag={tag} pyproject={project} manifest={plugin} pin={pin}")
+          if len({tag, project, plugin, pin}) != 1:
               sys.exit("versions disagree")
           PY
 

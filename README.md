@@ -25,7 +25,7 @@ Requires [uv](https://docs.astral.sh/uv/) on `PATH`. The repo is its own marketp
 /plugin install deep-zotero
 ```
 
-The server launches through `uvx`, which builds and caches the package on first run.
+The server launches through `uvx`, which fetches the pinned `deep-zotero` wheel from PyPI and caches it.
 
 In the environment Claude Code starts from, set `DEEP_ZOTERO_DATA_DIR` (the Zotero data directory holding `zotero.sqlite` and `storage/`), `DEEP_ZOTERO_CHROMA_PATH` (where the index lives), `GEMINI_API_KEY` (embeddings) and `ANTHROPIC_API_KEY` (vision table extraction during indexing).
 
@@ -367,3 +367,9 @@ temp ChromaDB, and asserts on extraction and retrieval quality. It writes
 
 `--vision-only` re-runs just the vision extraction against an existing
 `_stress_test_debug.db`, optionally narrowed to one paper with `--paper KEY`.
+
+## Releasing
+
+`python tools/release.py --bump patch` (or an explicit `X.Y.Z`) rewrites the version in `pyproject.toml` and `.claude-plugin/plugin.json`, including the pinned package the plugin launches, then commits and tags. It refuses a dirty tree, a non-`main` branch, and an existing tag.
+
+Pushing the tag runs `.github/workflows/publish.yml`, which re-checks that tag, both manifests and the pin agree before publishing to PyPI.

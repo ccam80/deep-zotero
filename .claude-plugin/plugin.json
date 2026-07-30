@@ -21,7 +21,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "${CLAUDE_PLUGIN_ROOT}[vision]",
+        "deep-zotero[vision]==0.2.0",
         "deep-zotero"
       ],
       "env": {
