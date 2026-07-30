@@ -1,6 +1,6 @@
 {
   "name": "deep-zotero",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Semantic and exact-word search over an indexed Zotero PDF library. Retrieves passages, tables and figures with citation keys, and traces citation graphs via OpenAlex.",
   "author": {
     "name": "Chris Cameron"
@@ -21,7 +21,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "deep-zotero[vision]==0.2.0",
+        "deep-zotero[vision]==0.2.1",
         "deep-zotero"
       ]
     }
