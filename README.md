@@ -25,14 +25,9 @@ Requires [uv](https://docs.astral.sh/uv/) on `PATH`. The repo is its own marketp
 /plugin install deep-zotero
 ```
 
-The server launches through `uvx`, which builds and caches the package on first run. Set these in the environment Claude Code starts from:
+The server launches through `uvx`, which builds and caches the package on first run.
 
-| Variable | Purpose |
-|---|---|
-| `DEEP_ZOTERO_DATA_DIR` | Zotero data directory, holding `zotero.sqlite` and `storage/` |
-| `DEEP_ZOTERO_CHROMA_PATH` | Where the index lives |
-| `GEMINI_API_KEY` | Embeddings |
-| `ANTHROPIC_API_KEY` | Vision table extraction during indexing |
+In the environment Claude Code starts from, set `DEEP_ZOTERO_DATA_DIR` (the Zotero data directory holding `zotero.sqlite` and `storage/`), `DEEP_ZOTERO_CHROMA_PATH` (where the index lives), `GEMINI_API_KEY` (embeddings) and `ANTHROPIC_API_KEY` (vision table extraction during indexing).
 
 Index the library once before searching: `deep-zotero-index -v`.
 
