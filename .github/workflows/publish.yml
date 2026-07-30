@@ -26,7 +26,7 @@ jobs:
               pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
           )["project"]["version"]
           manifest = json.loads(
-              pathlib.Path(".claude-plugin/plugin.json").read_text(encoding="utf-8")
+              pathlib.Path("plugin/.claude-plugin/plugin.json").read_text(encoding="utf-8")
           )
           plugin = manifest["version"]
           args = manifest["mcpServers"]["deep-zotero"]["args"]

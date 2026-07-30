@@ -353,6 +353,6 @@ temp ChromaDB, and asserts on extraction and retrieval quality. It writes
 
 ## Releasing
 
-`python tools/release.py --bump patch` (or an explicit `X.Y.Z`) rewrites the version in `pyproject.toml` and `.claude-plugin/plugin.json`, including the pinned package the plugin launches, then commits and tags. It refuses a dirty tree, a non-`main` branch, and an existing tag.
+`python tools/release.py --bump patch` (or an explicit `X.Y.Z`) rewrites the version in `pyproject.toml` and `plugin/.claude-plugin/plugin.json`, including the pinned package the plugin launches, then commits and tags. It refuses a dirty tree, a non-`main` branch, and an existing tag.
 
 Pushing the tag runs `.github/workflows/publish.yml`, which re-checks that tag, both manifests and the pin agree before publishing to PyPI.
