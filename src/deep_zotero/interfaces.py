@@ -97,6 +97,14 @@ class VectorStoreProtocol(Protocol):
         """Delete all chunks for a document."""
         ...
 
+    def snapshot_document(self, doc_id: str) -> dict:
+        """Copy a document's chunks so they can be restored."""
+        ...
+
+    def restore_document(self, snapshot: dict) -> None:
+        """Re-add chunks captured by snapshot_document."""
+        ...
+
     def get_indexed_doc_ids(self) -> set[str]:
         """Get IDs of all indexed documents."""
         ...
