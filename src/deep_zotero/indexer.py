@@ -332,8 +332,9 @@ class Indexer:
             t0 = time.perf_counter()
             try:
                 if item_key in pending_delete:
-                    self.store.delete_document(item_key)
-                n_chunks, n_tables, reason, extraction_stats, quality_grade = self._index_extraction(item, extraction)
+                    n_chunks, n_tables, reason, extraction_stats, quality_grade = self._replace_document(item, extraction)
+                else:
+                    n_chunks, n_tables, reason, extraction_stats, quality_grade = self._index_extraction(item, extraction)
 
                 # Aggregate extraction stats
                 for key in ["total_pages", "text_pages", "ocr_pages", "empty_pages"]:
@@ -534,14 +535,25 @@ class Indexer:
         n_chunks, _n_tables, _reason, _stats, _quality = self._index_document_detailed(item)
         return n_chunks
 
+    def _replace_document(self, item: ZoteroItem, extraction) -> tuple[int, int, str, dict, str]:
+        """Swap a stored document for its new extraction; the old chunks come back if storing fails."""
+        snapshot = self.store.snapshot_document(item.item_key)
+        self.store.delete_document(item.item_key)
+        try:
+            return self._index_extraction(item, extraction)
+        except Exception:
+            # Drop any partially stored replacement before restoring.
+            self.store.delete_document(item.item_key)
+            self.store.restore_document(snapshot)
+            raise
+
     def reindex_document(self, item_key: str) -> int:
-        """Re-index a specific document; the old copy is kept until the new extraction succeeds."""
+        """Re-index a specific document; the old copy is kept until the new one is stored."""
         item = self.zotero.get_item(item_key)
         if not item:
             return 0
         extraction = self._extract_single(item)
-        self.store.delete_document(item_key)
-        n_chunks, _n_tables, _reason, _stats, _quality = self._index_extraction(item, extraction)
+        n_chunks, _n_tables, _reason, _stats, _quality = self._replace_document(item, extraction)
         return n_chunks
 
     def get_stats(self) -> dict:

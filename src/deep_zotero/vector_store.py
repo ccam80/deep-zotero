@@ -361,6 +361,37 @@ class VectorStore:
         """Remove all chunks for a document."""
         self.collection.delete(where={"doc_id": {"$eq": doc_id}})
 
+    def snapshot_document(self, doc_id: str) -> dict:
+        """Copy a document's chunks, embeddings and metadata so restore_document can put them back."""
+        snap: dict = {"ids": [], "documents": [], "embeddings": [], "metadatas": []}
+        offset = 0
+        while True:
+            page = self.collection.get(
+                where={"doc_id": {"$eq": doc_id}},
+                include=["documents", "embeddings", "metadatas"],
+                limit=METADATA_SCAN_BATCH,
+                offset=offset,
+            )
+            if not page["ids"]:
+                break
+            snap["ids"].extend(page["ids"])
+            snap["documents"].extend(page["documents"])
+            snap["embeddings"].extend(e.tolist() if hasattr(e, "tolist") else list(e) for e in page["embeddings"])
+            snap["metadatas"].extend(page["metadatas"])
+            offset += len(page["ids"])
+        return snap
+
+    def restore_document(self, snapshot: dict) -> None:
+        """Re-add chunks captured by snapshot_document."""
+        if not snapshot["ids"]:
+            return
+        self.collection.add(
+            ids=snapshot["ids"],
+            documents=snapshot["documents"],
+            embeddings=snapshot["embeddings"],
+            metadatas=snapshot["metadatas"],
+        )
+
     def get_indexed_doc_ids(self) -> set[str]:
         """Get set of all indexed document IDs.
 
