@@ -80,6 +80,40 @@ class TestItemTypeFiltering:
 
         assert "A_NOTE" not in _item_keys(mock_zotero_db)
 
+    def test_item_with_two_pdfs_is_one_item(self, mock_zotero_db: Path):
+        _add_item(mock_zotero_db, 103, "ATT00003", ATTACHMENT)
+        _add_pdf(mock_zotero_db, 103, 1)
+
+        items = ZoteroClient(mock_zotero_db.parent).get_all_items_with_pdfs()
+
+        assert [i.item_key for i in items].count("ABC12345") == 1
+
+    def test_oldest_pdf_on_disk_is_used(self, mock_zotero_db: Path):
+        data_dir = mock_zotero_db.parent
+        _add_item(mock_zotero_db, 103, "ATT00003", ATTACHMENT)
+        _add_pdf(mock_zotero_db, 103, 1)
+        first = data_dir / "storage" / "ATT00001" / "test1.pdf"
+        second = data_dir / "storage" / "ATT00003" / "103.pdf"
+        for p in (first, second):
+            p.parent.mkdir(parents=True)
+            p.write_bytes(b"%PDF-1.4\n")
+
+        items = {i.item_key: i for i in ZoteroClient(data_dir).get_all_items_with_pdfs()}
+
+        assert items["ABC12345"].pdf_path == first
+
+    def test_missing_first_pdf_falls_back_to_next(self, mock_zotero_db: Path):
+        data_dir = mock_zotero_db.parent
+        _add_item(mock_zotero_db, 103, "ATT00003", ATTACHMENT)
+        _add_pdf(mock_zotero_db, 103, 1)
+        second = data_dir / "storage" / "ATT00003" / "103.pdf"
+        second.parent.mkdir(parents=True)
+        second.write_bytes(b"%PDF-1.4\n")
+
+        items = {i.item_key: i for i in ZoteroClient(data_dir).get_all_items_with_pdfs()}
+
+        assert items["ABC12345"].pdf_path == second
+
     def test_unusual_bibliographic_types_are_sources(self, mock_zotero_db: Path):
         """Anything that is not a note/attachment/annotation is indexable."""
         conn = sqlite3.connect(mock_zotero_db)

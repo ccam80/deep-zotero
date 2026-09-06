@@ -168,11 +168,12 @@ class Indexer:
             items = items[:limit]
             logger.info(f"Limit applied: processing at most {limit} papers")
 
+        # Docs to replace; deleted only once their new extraction is ready to store.
+        pending_delete: set[str] = set()
         if force_reindex:
             existing = self.store.get_indexed_doc_ids()
             item_keys = {i.item_key for i in items}
-            for doc_id in existing & item_keys:
-                self.store.delete_document(doc_id)
+            pending_delete = existing & item_keys
             indexed_ids = set()
             empty_docs: dict[str, str] = {}
         else:
@@ -199,7 +200,7 @@ class Indexer:
             if item.item_key in indexed_ids:
                 needs_reindex, reason = self._needs_reindex(item)
                 if needs_reindex:
-                    self.store.delete_document(item.item_key)
+                    pending_delete.add(item.item_key)
                     indexed_ids.discard(item.item_key)
                     reindex_reasons[item.item_key] = reason
                     logger.info(f"Reindexing {item.item_key}: {reason}")
@@ -330,6 +331,8 @@ class Indexer:
         for idx, (item_key, (item, extraction)) in enumerate(doc_extractions.items(), 1):
             t0 = time.perf_counter()
             try:
+                if item_key in pending_delete:
+                    self.store.delete_document(item_key)
                 n_chunks, n_tables, reason, extraction_stats, quality_grade = self._index_extraction(item, extraction)
 
                 # Aggregate extraction stats
@@ -399,12 +402,8 @@ class Indexer:
 
         return {"results": results, **counts}
 
-    def _index_document_detailed(self, item: ZoteroItem) -> tuple[int, int, str, dict, str]:
-        """
-        Extract and index a single document (includes vision resolution).
-
-        For batch indexing use index_all() which batches vision across all docs.
-        """
+    def _extract_single(self, item: ZoteroItem):
+        """Extract one document with its vision work resolved (index_all batches vision instead)."""
         if item.pdf_path is None or not item.pdf_path.exists():
             raise FileNotFoundError(f"PDF not found for {item.item_key}")
 
@@ -417,12 +416,15 @@ class Indexer:
             vision_api=self._vision_api,
         )
 
-        # Resolve vision for this single document
         if extraction.pending_vision is not None and self._vision_api:
             from .pdf_processor import resolve_pending_vision
             resolve_pending_vision({item.item_key: extraction}, self._vision_api)
 
-        return self._index_extraction(item, extraction)
+        return extraction
+
+    def _index_document_detailed(self, item: ZoteroItem) -> tuple[int, int, str, dict, str]:
+        """Extract and index a single document."""
+        return self._index_extraction(item, self._extract_single(item))
 
     def _index_extraction(self, item: ZoteroItem, extraction) -> tuple[int, int, str, dict, str]:
         """
@@ -533,12 +535,14 @@ class Indexer:
         return n_chunks
 
     def reindex_document(self, item_key: str) -> int:
-        """Re-index a specific document."""
-        self.store.delete_document(item_key)
+        """Re-index a specific document; the old copy is kept until the new extraction succeeds."""
         item = self.zotero.get_item(item_key)
-        if item:
-            return self.index_document(item)
-        return 0
+        if not item:
+            return 0
+        extraction = self._extract_single(item)
+        self.store.delete_document(item_key)
+        n_chunks, _n_tables, _reason, _stats, _quality = self._index_extraction(item, extraction)
+        return n_chunks
 
     def get_stats(self) -> dict:
         """Get index statistics."""

@@ -99,6 +99,7 @@ class ZoteroClient:
         pdfs AS (
             SELECT
                 COALESCE(ia.parentItemID, ia.itemID) AS parentItemID,
+                ia.itemID AS attachmentID,
                 items."key" AS attachmentKey,
                 ia.linkMode,
                 ia.path
@@ -130,7 +131,7 @@ class ZoteroClient:
     LEFT JOIN item_tags ON base_items.itemID = item_tags.itemID
     LEFT JOIN item_collections ON base_items.itemID = item_collections.itemID
     JOIN pdfs ON base_items.itemID = pdfs.parentItemID
-    ORDER BY base_items.itemID;
+    ORDER BY base_items.itemID, pdfs.attachmentID;
     """
 
     def __init__(self, data_dir: Path):
@@ -166,7 +167,7 @@ class ZoteroClient:
         return None
 
     def get_all_items_with_pdfs(self) -> list[ZoteroItem]:
-        """Get all Zotero items that have PDF attachments."""
+        """One item per Zotero item, using its oldest PDF attachment that exists on disk."""
         conn = sqlite3.connect(f"file:{self.db_path}?mode=ro&immutable=1", uri=True)
         conn.row_factory = sqlite3.Row
 
@@ -176,14 +177,17 @@ class ZoteroClient:
         finally:
             conn.close()
 
-        items = []
+        items: dict[str, ZoteroItem] = {}
         for row in rows:
             pdf_path = self._resolve_pdf_path(
                 row["path"],
                 row["linkMode"],
                 row["attachmentKey"]
             )
-            items.append(ZoteroItem(
+            existing = items.get(row["itemKey"])
+            if existing is not None and (existing.pdf_path is not None or pdf_path is None):
+                continue
+            items[row["itemKey"]] = ZoteroItem(
                 item_key=row["itemKey"],
                 title=row["title"],
                 authors=row["authors"],
@@ -194,9 +198,9 @@ class ZoteroClient:
                 doi=row["doi"],
                 tags=row["tags"],
                 collections=row["collections"],
-            ))
+            )
 
-        return items
+        return list(items.values())
 
     def get_item(self, item_key: str) -> ZoteroItem | None:
         """Get a specific item by key."""
